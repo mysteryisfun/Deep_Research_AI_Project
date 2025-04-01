@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "Royal Research",
+    "slug": "royal-research",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/splash-icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0F172A"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/splash-icon.png",
+        "backgroundColor": "#0F172A"
+      }
+    },
+    "web": {
+      "favicon": "./assets/splash-icon.png",
+      "bundler": "metro",
+      "build": {
+        "babel": {
+          "include": ["react-native-reanimated"]
+        }
+      }
+    },
+    "plugins": [
+      "expo-image-picker"
+    ],
+    "sdkVersion": "50.0.0"
+  }
+}
