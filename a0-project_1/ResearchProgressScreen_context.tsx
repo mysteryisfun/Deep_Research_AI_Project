@@ -22,7 +22,6 @@ import { supabase } from '../utils/supabase';
 import { toast } from 'sonner-native';
 import ResearchProgressMonitor from '../components/ResearchProgressMonitor';
 import TopicCard from '../components/TopicCard';
-import { cleanupDebugTopics } from '../utils/researchService';
 
 // Define types for route params
 type RouteParams = {
@@ -72,19 +71,11 @@ const ResearchProgressScreen = () => {
   const [progressPercentage, setProgressPercentage] = useState<number>(0);
   const [totalTopics, setTotalTopics] = useState<number>(0);
   const [selectedTopicId, setSelectedTopicId] = useState<string | null>(null);
-  const [resultsAvailable, setResultsAvailable] = useState(false);
   
   // Calculate estimated total topics based on breadth and depth
   useEffect(() => {
-    // Calculate as per the formula: (Depth × Breadth) + 3
-    // +3 accounts for: 1) firing the research topic, 2) preparing the final draft, 3) ready state
-    const totalSerpQueries = breadth * depth;
-    const totalTopics = totalSerpQueries + 3;
-    
-    // Ensure we have at least 4 topics (1 query + 3 additional states)
-    const estimate = Math.max(4, totalTopics);
-    
-    console.log(`Estimated topics: ${estimate} (${breadth} breadth × ${depth} depth + 3 additional steps)`);
+    // This is a simple estimation - adjust as needed based on actual data
+    const estimate = Math.max(3, Math.round((breadth * depth) / 1.5));
     setExpectedTopics(estimate);
   }, [breadth, depth]);
   
@@ -111,18 +102,8 @@ const ResearchProgressScreen = () => {
       return;
     }
     
-    // First attempt to clean up any debug topics
-    cleanupDebugTopics(research_id)
-      .then(cleaned => {
-        console.log(`Debug topics cleanup ${cleaned ? 'successful' : 'failed'}`);
-      })
-      .catch(err => {
-        console.error('Error during debug topics cleanup:', err);
-      })
-      .finally(() => {
-        // Then load initial data
-        fetchInitialTopics();
-      });
+    // Load initial data
+    fetchInitialTopics();
     
     // Set up real-time subscription
     const channel = supabase
@@ -150,33 +131,6 @@ const ResearchProgressScreen = () => {
     };
   }, [research_id]);
   
-  // Set up a periodic cleanup to handle any new debug topics that might get added
-  useEffect(() => {
-    if (!research_id) return;
-    
-    console.log('Setting up periodic debug topics cleanup');
-    
-    // Run a cleanup every 30 seconds
-    const intervalId = setInterval(() => {
-      console.log('Running periodic debug topics cleanup');
-      cleanupDebugTopics(research_id)
-        .then(cleaned => {
-          if (cleaned) {
-            // Only refresh if topics were actually cleaned up
-            fetchInitialTopics();
-          }
-        })
-        .catch(err => {
-          console.error('Error during periodic debug topics cleanup:', err);
-        });
-    }, 30000);
-    
-    // Cleanup interval on unmount
-    return () => {
-      clearInterval(intervalId);
-    };
-  }, [research_id]);
-  
   // Fetch initial topics data
   const fetchInitialTopics = async () => {
     try {
@@ -198,18 +152,10 @@ const ResearchProgressScreen = () => {
         links: Array.isArray(item.links) ? item.links : []
       }));
       
-      // Filter out debug topics
-      const filteredData = transformedData.filter(item => 
-        !item.topic || 
-        (typeof item.topic === 'string' && !item.topic.includes('Debug Topic'))
-      );
-      
-      console.log(`Filtered out ${transformedData.length - filteredData.length} debug topics`);
-      
-      setTopics(filteredData);
+      setTopics(transformedData);
       
       // Check if research is done from the latest topic
-      if (filteredData.length > 0 && filteredData[0].topic.toLowerCase().includes('research_done')) {
+      if (transformedData.length > 0 && transformedData[0].topic.toLowerCase().includes('research_done')) {
         setIsComplete(true);
       }
     } catch (err) {
@@ -225,15 +171,6 @@ const ResearchProgressScreen = () => {
     console.log('Received progress update:', payload);
     
     const { eventType, new: newRecord, old: oldRecord } = payload;
-    
-    // Filter out debug topics
-    if (newRecord && 
-        newRecord.topic && 
-        typeof newRecord.topic === 'string' && 
-        newRecord.topic.includes('Debug Topic')) {
-      console.log('Ignoring debug topic:', newRecord.topic);
-      return;
-    }
     
     if (eventType === 'INSERT') {
       // Add new topic to the top of the list
@@ -262,10 +199,10 @@ const ResearchProgressScreen = () => {
           newRecord.topic.toLowerCase().includes('ready')) {
         setIsComplete(true);
         toast.success('Research has completed!');
-        // Remove automatic navigation to results screen
-        // setTimeout(() => {
-        //   navigation.navigate('ResearchResultScreen', { research_id });
-        // }, 1500);
+        // Navigate to results screen after a short delay
+        setTimeout(() => {
+          navigation.navigate('ResearchResultScreen', { research_id });
+        }, 1500);
       }
     } else if (eventType === 'UPDATE') {
       // Update existing topic with new data
@@ -300,16 +237,10 @@ const ResearchProgressScreen = () => {
     if (topics.length === 0) return 0;
     
     // If the research is done, return 100%
-    if (isResearchDone() || isComplete) return 100;
+    if (isResearchDone()) return 100;
     
-    // Calculate progress based on topics completed
-    const topicsWithoutFinal = topics.length;
-    const expectedWithoutFinal = expectedTopics;
-    
-    // Calculate percentage with a cap at 99% until fully done
-    const percentage = Math.min(Math.round((topicsWithoutFinal / expectedWithoutFinal) * 100), 99);
-    
-    return percentage;
+    const topicsCompleted = topics.length - 1; // All except the current one
+    return Math.min(Math.round((topicsCompleted / expectedTopics) * 100), 99);
   }
   
   // Check if research is done by looking at the latest topic
@@ -328,7 +259,9 @@ const ResearchProgressScreen = () => {
   // Render source links for a topic
   const renderSourceLinks = (links: any[]) => {
     if (!links || links.length === 0) {
-      return null;
+      return (
+        <Text style={styles.noSourcesText}>No sources found yet</Text>
+      );
     }
     
     return (
@@ -354,76 +287,9 @@ const ResearchProgressScreen = () => {
     return isComplete || calculateProgress() >= 99;
   };
   
-  // Monitor for research results
-  useEffect(() => {
-    if (!research_id) return;
-
-    console.log(`Setting up real-time monitoring for research results: ${research_id}`);
-
-    // Set up subscription for research results
-    const subscription = supabase
-      .channel(`progress-results-${research_id}`)
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'research_results_new',
-        filter: `research_id=eq.${research_id}`
-      }, (payload) => {
-        console.log('Research result update received:', payload);
-        
-        // Mark results as available
-        if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-          console.log('Setting resultsAvailable to true');
-          setResultsAvailable(true);
-          
-          // Also mark research as complete if not already
-          if (!isComplete) {
-            setIsComplete(true);
-          }
-        }
-      })
-      .subscribe();
-
-    // Check if results already exist
-    const checkExistingResults = async () => {
-      try {
-        const { data, error } = await supabase
-          .from('research_results_new')
-          .select('result_id')
-          .eq('research_id', research_id)
-          .limit(1);
-        
-        if (!error && data && data.length > 0) {
-          console.log('Existing results found:', data);
-          setResultsAvailable(true);
-        }
-      } catch (err) {
-        console.error('Error checking for existing results:', err);
-      }
-    };
-    
-    checkExistingResults();
-
-    return () => {
-      console.log('Cleaning up research results subscription');
-      supabase.removeChannel(subscription);
-    };
-  }, [research_id, isComplete]);
-  
   // Navigate to results screen
   const viewResults = () => {
-    console.log(`Navigating to ResearchResultScreen with research_id: ${research_id}`);
-    
-    if (!resultsAvailable) {
-      console.log('Results not fully available yet, but will navigate and show loading state');
-      toast.info('Your research report is still being prepared');
-    }
-    
-    // Pass the research_id both as research_id and researchId to ensure compatibility
-    navigation.navigate('ResearchResultScreen', { 
-      researchId: research_id,
-      research_id: research_id  // Redundant but ensures backward compatibility
-    });
+    navigation.navigate('ResearchResultScreen', { research_id });
   };
   
   const progressWidth = progressAnimValue.interpolate({
@@ -440,23 +306,6 @@ const ResearchProgressScreen = () => {
       setUserId('system-user');
     }
   }, [topics]);
-
-  // Update progress percentage when topics change
-  useEffect(() => {
-    // Calculate current progress
-    const currentProgress = calculateProgress();
-    setProgressPercentage(currentProgress);
-    
-    // Check if research is complete
-    if (currentProgress >= 99 || isResearchDone()) {
-      setIsComplete(true);
-    }
-    
-    // Update total topics count
-    setTotalTopics(topics.length);
-    
-    console.log(`Progress updated: ${currentProgress}%, Topics: ${topics.length}/${expectedTopics}`);
-  }, [topics, expectedTopics]);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -597,7 +446,7 @@ const ResearchProgressScreen = () => {
           {!isComplete && topics.length < expectedTopics && (
             <View style={styles.estimatedContainer}>
               <Text style={styles.estimatedText}>
-                {expectedTopics - topics.length} more topics expected
+                ~{expectedTopics - topics.length} more topics expected...
               </Text>
             </View>
           )}
@@ -617,17 +466,8 @@ const ResearchProgressScreen = () => {
               end={{ x: 1, y: 0 }}
               style={styles.resultsButtonGradient}
             >
-              {!resultsAvailable ? (
-                <>
-                  <ActivityIndicator size="small" color="#fff" style={styles.loadingIcon} />
-                  <Text style={styles.resultsButtonText}>Results Processing...</Text>
-                </>
-              ) : (
-                <>
-                  <MaterialIcons name="assignment-turned-in" size={20} color="#fff" />
-                  <Text style={styles.resultsButtonText}>View Results</Text>
-                </>
-              )}
+              <MaterialIcons name="assignment-turned-in" size={20} color="#fff" />
+              <Text style={styles.resultsButtonText}>View Results</Text>
             </LinearGradient>
           </TouchableOpacity>
         ) : (
@@ -865,6 +705,13 @@ const styles = StyleSheet.create({
     textDecorationLine: 'underline',
     textDecorationColor: 'rgba(99, 102, 241, 0.5)',
   },
+  noSourcesText: {
+    fontSize: 13,
+    color: '#94a3b8',
+    fontStyle: 'italic',
+    textAlign: 'center',
+    padding: 8,
+  },
   topicTime: {
     fontSize: 12,
     color: '#64748b',
@@ -978,9 +825,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#fff',
     marginLeft: 4,
-  },
-  loadingIcon: {
-    marginRight: 8,
   },
 });
 

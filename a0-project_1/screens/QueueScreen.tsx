@@ -89,6 +89,7 @@ const ResearchCard = ({ item, index, onViewDetails }: ResearchCardProps) => {
   const createdTime = getRelativeTime(item.created_at);
   
   return (
+    // @ts-ignore - MotiView transition type issue
     <MotiView
       from={{ opacity: 0, translateY: 20 }}
       animate={{ opacity: 1, translateY: 0 }}
@@ -136,20 +137,13 @@ const ResearchCard = ({ item, index, onViewDetails }: ResearchCardProps) => {
           </View>
         </View>
         
-        {item.has_results ? (
-          <TouchableOpacity 
-            style={styles.viewButton}
-            onPress={() => onViewDetails(item.research_id)}
-          >
-            <Text style={styles.viewButtonText}>View Progress</Text>
-            <MaterialIcons name="arrow-forward" size={16} color="#6c63ff" />
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.waitingButton}>
-            <Text style={styles.waitingButtonText}>Waiting for results...</Text>
-            <ActivityIndicator size="small" color="rgba(108, 99, 255, 0.7)" />
-          </View>
-        )}
+        <TouchableOpacity 
+          style={styles.viewButton}
+          onPress={() => onViewDetails(item.research_id)}
+        >
+          <Text style={styles.viewButtonText}>View Progress</Text>
+          <MaterialIcons name="arrow-forward" size={16} color="#6c63ff" />
+        </TouchableOpacity>
       </LinearGradient>
     </MotiView>
   );
@@ -209,24 +203,34 @@ export default function QueueScreen() {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'research_history_new' },
-        (payload) => {
+        (payload: any) => {
           console.log('Research history change received:', payload);
           
           setResearchItems(prevItems => {
             if (payload.eventType === 'INSERT') {
-              if (payload.new.status === 'completed') return prevItems;
-              return [payload.new, ...prevItems];
+              // Ensure payload.new has the right shape before adding it
+              if (payload.new && typeof payload.new.research_id === 'string') {
+                if (payload.new.status === 'completed') return prevItems;
+                return [payload.new as ResearchItem, ...prevItems];
+              }
+              return prevItems;
             }
             if (payload.eventType === 'UPDATE') {
-              if (payload.new.status === 'completed') {
-                return prevItems.filter(item => item.research_id !== payload.new.research_id);
+              if (payload.new && typeof payload.new.research_id === 'string') {
+                if (payload.new.status === 'completed') {
+                  return prevItems.filter(item => item.research_id !== payload.new.research_id);
+                }
+                return prevItems.map(item => 
+                  item.research_id === payload.new.research_id ? (payload.new as ResearchItem) : item
+                );
               }
-              return prevItems.map(item => 
-                item.research_id === payload.new.research_id ? payload.new : item
-              );
+              return prevItems;
             }
             if (payload.eventType === 'DELETE') {
-              return prevItems.filter(item => item.research_id !== payload.old.research_id);
+              if (payload.old && typeof payload.old.research_id === 'string') {
+                return prevItems.filter(item => item.research_id !== payload.old.research_id);
+              }
+              return prevItems;
             }
             return prevItems;
           });
@@ -340,8 +344,27 @@ export default function QueueScreen() {
   // Function to view research details
   const handleViewDetails = (researchId: string) => {
     console.log(`Navigating to details for research: ${researchId}`);
-    // @ts-ignore - Ignore the navigation type error
-    navigation.navigate('ResearchProgressScreen', { research_id: researchId });
+    
+    // Find the research item to get all its details
+    const researchItem = researchItems.find(item => item.research_id === researchId);
+    
+    if (researchItem) {
+      // Pass all necessary parameters to the ResearchProgressScreen
+      // @ts-ignore - Navigation typing issue
+      navigation.navigate('ResearchProgressScreen', { 
+        research_id: researchId,
+        query: researchItem.query,
+        breadth: researchItem.breadth,
+        depth: researchItem.depth,
+        user_id: researchItem.user_id,
+        agent: researchItem.agent
+      });
+    } else {
+      // If item not found, just pass the research_id
+      // @ts-ignore - Navigation typing issue
+      navigation.navigate('ResearchProgressScreen', { research_id: researchId });
+      toast.info('Loading research details...');
+    }
   };
   
   // Function to add test data to Supabase for testing
@@ -475,6 +498,7 @@ export default function QueueScreen() {
           colors={['rgba(58, 28, 113, 0.7)', 'rgba(58, 28, 113, 0.85)']}
           style={styles.bannerGradient}
         >
+          {/* @ts-ignore - MotiView transition type issue */}
           <MotiView
             from={{ opacity: 0, translateY: 20 }}
             animate={{ opacity: 1, translateY: 0 }}
@@ -524,6 +548,7 @@ export default function QueueScreen() {
             </View>
           )}
           
+          {/* @ts-ignore - MotiView transition type issue */}
           <MotiView
             from={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -533,7 +558,7 @@ export default function QueueScreen() {
             <TouchableOpacity 
               style={styles.addButton}
               onPress={() => {
-                // @ts-ignore - Ignore the navigation type error
+                // @ts-ignore - Navigation typing issue
                 navigation.navigate('ChooseAgentScreen');
               }}
             >

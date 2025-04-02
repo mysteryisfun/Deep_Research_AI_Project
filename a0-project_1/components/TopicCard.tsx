@@ -37,15 +37,17 @@ const TopicCard: React.FC<TopicCardProps> = ({
   createdAt,
   isLastItem = false
 }) => {
-  // Check if this is a completion topic
+  // Check if this is a completion topic or system card
   const isCompletionTopic = topic.toLowerCase().includes('research_done');
+  const isSystemCard = isCompletionTopic || 
+                      topic.toLowerCase().includes('firing') || 
+                      topic.toLowerCase().includes('preparing') || 
+                      topic.toLowerCase().includes('ready');
   
   // Render source links
   const renderSourceLinks = () => {
     if (!links || links.length === 0) {
-      return (
-        <Text style={styles.noSourcesText}>No sources found yet</Text>
-      );
+      return null; // Instead of displaying "No sources found yet", return null
     }
     
     return (
@@ -125,16 +127,18 @@ const TopicCard: React.FC<TopicCardProps> = ({
         </View>
       )}
       
-      {/* Source Links */}
-      <View style={styles.sourcesSection}>
-        <View style={styles.sourcesHeader}>
-          <MaterialIcons name="link" size={14} color="#94a3b8" />
-          <Text style={styles.sourcesTitle}>
-            Sources ({links.length})
-          </Text>
+      {/* Source Links - Only show for non-system cards */}
+      {!isSystemCard && links && links.length > 0 && (
+        <View style={styles.sourcesSection}>
+          <View style={styles.sourcesHeader}>
+            <MaterialIcons name="link" size={14} color="#94a3b8" />
+            <Text style={styles.sourcesTitle}>
+              Sources ({links.length})
+            </Text>
+          </View>
+          {renderSourceLinks()}
         </View>
-        {renderSourceLinks()}
-      </View>
+      )}
       
       {/* Creation Time */}
       {createdAt && (
@@ -278,13 +282,6 @@ const styles = StyleSheet.create({
     flex: 1,
     textDecorationLine: 'underline',
     textDecorationColor: 'rgba(99, 102, 241, 0.5)',
-  },
-  noSourcesText: {
-    fontSize: 13,
-    color: '#94a3b8',
-    fontStyle: 'italic',
-    textAlign: 'center',
-    padding: 8,
   },
   topicTime: {
     fontSize: 12,

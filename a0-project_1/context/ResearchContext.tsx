@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabaseClient, ResearchHistory, ResearchQuestion, ResearchProgress, ResearchResult } from './supabase';
+import { submitFeedback as submitResearchFeedback } from '../utils/researchService';
 
 interface ResearchContextType {
   currentResearch: ResearchHistory | null;
@@ -94,14 +95,27 @@ export const ResearchProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   const submitFeedback = async (rating: number, comment?: string) => {
-    if (!currentResearch?.research_id) return;
+    if (!currentResearch?.research_id) {
+      console.error('Cannot submit feedback: No current research selected');
+      return;
+    }
 
-    await supabaseClient.submitFeedback({
-      research_id: currentResearch.research_id,
-      user_id: currentResearch.user_id,
-      rating,
-      comment,
-    });
+    console.log(`ResearchContext: Submitting feedback for research ${currentResearch.research_id}`);
+    try {
+      const success = await submitResearchFeedback(
+        currentResearch.research_id,
+        rating,
+        comment
+      );
+      
+      if (!success) {
+        console.error('Feedback submission failed');
+      } else {
+        console.log('Feedback submission was successful');
+      }
+    } catch (error) {
+      console.error('Error in ResearchContext.submitFeedback:', error);
+    }
   };
 
   return (

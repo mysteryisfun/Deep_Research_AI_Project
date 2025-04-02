@@ -27,6 +27,7 @@ import Markdown from 'react-native-markdown-display';
 import { useTheme } from '../context/ThemeContext';
 import { useResearch } from '../context/ResearchContext';
 import { supabase } from '../context/supabase';
+import { submitFeedback, checkFeedbackSubmitted } from '../utils/researchService';
 
 type RootStackParamList = {
   LoginScreen: undefined;
@@ -96,6 +97,7 @@ export default function ResearchResultScreen() {
   const [rating, setRating] = useState<number | null>(null);
   const [feedbackComment, setFeedbackComment] = useState('');
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+  const [checkingFeedback, setCheckingFeedback] = useState(true);
   
   // Extract research ID from route params - be more flexible with param names
   const routeParams = route.params || {};
@@ -106,6 +108,60 @@ export default function ResearchResultScreen() {
     console.log('ResearchResultScreen mounted with params:', JSON.stringify(route.params));
     console.log('Extracted researchId:', researchId);
   }, [route.params, researchId]);
+  
+  // Check if feedback was already submitted
+  useEffect(() => {
+    if (!researchId) return;
+    
+    const checkExistingFeedback = async () => {
+      setCheckingFeedback(true);
+      try {
+        const hasSubmitted = await checkFeedbackSubmitted(researchId);
+        if (hasSubmitted) {
+          console.log(`User has already submitted feedback for research ${researchId}`);
+          setFeedbackSubmitted(true);
+        } else {
+          console.log(`No existing feedback found for research ${researchId}`);
+          
+          // Double-check using direct query as fallback (to handle different table names)
+          try {
+            // Try the standard table name first
+            let { data, error, count } = await supabase
+              .from('research_feedback')
+              .select('*', { count: 'exact' })
+              .eq('research_id', researchId)
+              .limit(1);
+            
+            // If there's an error, try the alternative table name
+            if (error) {
+              console.log('Trying alternative table name (research_feedbacks)');
+              const altResponse = await supabase
+                .from('research_feedbacks') 
+                .select('*', { count: 'exact' })
+                .eq('research_id', researchId)
+                .limit(1);
+              
+              data = altResponse.data;
+              count = altResponse.count;
+            }
+            
+            if (count && count > 0) {
+              console.log(`Found feedback in alternative check: ${count} records`);
+              setFeedbackSubmitted(true);
+            }
+          } catch (fallbackErr) {
+            console.error('Error in fallback feedback check:', fallbackErr);
+          }
+        }
+      } catch (err) {
+        console.error('Error checking feedback status:', err);
+      } finally {
+        setCheckingFeedback(false);
+      }
+    };
+    
+    checkExistingFeedback();
+  }, [researchId]);
   
   // Set up realtime subscription for result updates
   useEffect(() => {
@@ -244,18 +300,79 @@ export default function ResearchResultScreen() {
     setIsSubmittingFeedback(true);
     
     try {
-      const { error } = await supabase
-        .from('research_feedback')
-        .insert({
-          research_id: researchId,
-          rating,
-          comment: feedbackComment,
-        });
+      console.log(`Submitting feedback with rating ${rating} for research ${researchId}`);
+      // Use the submitFeedback function from researchService
+      const success = await submitFeedback(
+        researchId,
+        rating,
+        feedbackComment || undefined
+      );
       
-      if (error) throw error;
-      
-      setFeedbackSubmitted(true);
-      toast.success('Thank you for your feedback!');
+      if (!success) {
+        console.error('Feedback submission returned false, trying direct insertion');
+        
+        // Try direct insertion as fallback
+        try {
+          // Generate a unique feedback ID
+          const feedbackId = `feedback-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+          
+          // Prepare the feedback data
+          const feedbackData = {
+            feedback_id: feedbackId,
+            research_id: researchId,
+            rating,
+            comment: feedbackComment || null,
+            created_at: new Date().toISOString()
+          };
+          
+          // Try both table names
+          let succeeded = false;
+          
+          // Try standard table name
+          try {
+            const { error } = await supabase
+              .from('research_feedback')
+              .insert(feedbackData);
+              
+            if (!error) {
+              succeeded = true;
+              console.log('Direct feedback submission to research_feedback succeeded');
+            }
+          } catch (stdErr) {
+            console.error('Error with standard table name:', stdErr);
+          }
+          
+          // If standard failed, try alternative
+          if (!succeeded) {
+            try {
+              const { error } = await supabase
+                .from('research_feedbacks')
+                .insert(feedbackData);
+                
+              if (!error) {
+                succeeded = true;
+                console.log('Direct feedback submission to research_feedbacks succeeded');
+              }
+            } catch (altErr) {
+              console.error('Error with alternative table name:', altErr);
+            }
+          }
+          
+          if (succeeded) {
+            setFeedbackSubmitted(true);
+            toast.success('Thank you for your feedback!');
+          } else {
+            throw new Error('All submission attempts failed');
+          }
+        } catch (directErr) {
+          console.error('Error in direct submission:', directErr);
+          throw new Error('Failed to submit feedback');
+        }
+      } else {
+        console.log('Feedback submitted successfully, updating UI');
+        setFeedbackSubmitted(true);
+        // Toast notification is already shown in the submitFeedback function
+      }
     } catch (err) {
       console.error('Error submitting feedback:', err);
       toast.error('Failed to submit feedback');
@@ -304,6 +421,79 @@ export default function ResearchResultScreen() {
       });
     }
   }, [researchResult, currentResearch, researchId, setCurrentResearch]);
+
+  // Modify the Feedback Section to show a thank you message when feedback is submitted
+  // or show loading state when checking
+  const renderFeedbackSection = () => {
+    if (checkingFeedback) {
+      return (
+        <View style={[styles.feedbackCard, { backgroundColor: theme.card }]}>
+          <ActivityIndicator size="small" color={theme.accent} />
+          <Text style={[styles.loadingText, { color: theme.secondaryText, marginTop: 10 }]}>
+            Checking feedback status...
+          </Text>
+        </View>
+      );
+    }
+    
+    if (feedbackSubmitted) {
+      return (
+        <View style={[styles.feedbackCard, { backgroundColor: theme.card }]}>
+          <MaterialIcons name="check-circle" size={48} color="#4BB543" />
+          <Text style={[styles.feedbackTitle, { color: theme.text, textAlign: 'center', marginTop: 10 }]}>
+            Thank you for your feedback!
+          </Text>
+          <Text style={[{ color: theme.secondaryText, textAlign: 'center', marginTop: 8 }]}>
+            Your opinion helps us improve our research quality
+          </Text>
+        </View>
+      );
+    }
+    
+    return (
+      <View style={[styles.feedbackCard, { backgroundColor: theme.card }]}>
+        <Text style={[styles.feedbackTitle, { color: theme.text }]}>
+          Rate this Research
+        </Text>
+        <StarRating
+          rating={rating || 0}
+          setRating={(newRating) => setRating(newRating)}
+          disabled={isSubmittingFeedback}
+        />
+        <TextInput
+          style={[styles.feedbackInput, { 
+            backgroundColor: theme.background,
+            color: theme.text,
+            borderColor: theme.border
+          }]}
+          placeholder="Add a comment (optional)"
+          placeholderTextColor={theme.secondaryText}
+          value={feedbackComment}
+          onChangeText={setFeedbackComment}
+          multiline
+          numberOfLines={4}
+          editable={!isSubmittingFeedback}
+        />
+        <TouchableOpacity 
+          style={[
+            styles.submitButton,
+            { backgroundColor: theme.accent },
+            (!rating || isSubmittingFeedback) && { opacity: 0.6 }
+          ]}
+          onPress={handleSubmitFeedback}
+          disabled={isSubmittingFeedback || !rating}
+        >
+          {isSubmittingFeedback ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <Text style={styles.submitButtonText}>
+              Submit Feedback
+            </Text>
+          )}
+        </TouchableOpacity>
+      </View>
+    );
+  };
 
   if (isLoading) {
     return (
@@ -478,49 +668,8 @@ export default function ResearchResultScreen() {
             )}
         </View>
         
-        {/* Feedback Section */}
-        {!feedbackSubmitted && (
-          <View style={[styles.feedbackCard, { backgroundColor: theme.card }]}>
-            <Text style={[styles.feedbackTitle, { color: theme.text }]}>
-              Rate this Research
-          </Text>
-            <StarRating
-                rating={rating || 0}
-                setRating={(newRating) => setRating(newRating)}
-              disabled={isSubmittingFeedback}
-            />
-              <TextInput
-              style={[styles.feedbackInput, { 
-                backgroundColor: theme.background,
-                color: theme.text,
-                borderColor: theme.border
-              }]}
-              placeholder="Add a comment (optional)"
-              placeholderTextColor={theme.secondaryText}
-              value={feedbackComment}
-              onChangeText={setFeedbackComment}
-                multiline
-                numberOfLines={4}
-              editable={!isSubmittingFeedback}
-              />
-              <TouchableOpacity 
-                style={[
-                styles.submitButton,
-                { backgroundColor: theme.accent }
-                ]}
-                onPress={handleSubmitFeedback}
-              disabled={isSubmittingFeedback || !rating}
-                >
-                  {isSubmittingFeedback ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.submitButtonText}>
-                  Submit Feedback
-                </Text>
-              )}
-              </TouchableOpacity>
-          </View>
-          )}
+        {/* Feedback Section - using the new render function */}
+        {renderFeedbackSection()}
       </ScrollView>
       </SafeAreaView>
     );
