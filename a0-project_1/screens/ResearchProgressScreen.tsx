@@ -71,6 +71,7 @@ const ResearchProgressScreen = () => {
   const [progressPercentage, setProgressPercentage] = useState<number>(0);
   const [totalTopics, setTotalTopics] = useState<number>(0);
   const [selectedTopicId, setSelectedTopicId] = useState<string | null>(null);
+  const [resultsAvailable, setResultsAvailable] = useState(false);
   
   // Calculate estimated total topics based on breadth and depth
   useEffect(() => {
@@ -199,10 +200,10 @@ const ResearchProgressScreen = () => {
           newRecord.topic.toLowerCase().includes('ready')) {
         setIsComplete(true);
         toast.success('Research has completed!');
-        // Navigate to results screen after a short delay
-        setTimeout(() => {
-          navigation.navigate('ResearchResultScreen', { research_id });
-        }, 1500);
+        // Remove automatic navigation to results screen
+        // setTimeout(() => {
+        //   navigation.navigate('ResearchResultScreen', { research_id });
+        // }, 1500);
       }
     } else if (eventType === 'UPDATE') {
       // Update existing topic with new data
@@ -287,9 +288,76 @@ const ResearchProgressScreen = () => {
     return isComplete || calculateProgress() >= 99;
   };
   
+  // Monitor for research results
+  useEffect(() => {
+    if (!research_id) return;
+
+    console.log(`Setting up real-time monitoring for research results: ${research_id}`);
+
+    // Set up subscription for research results
+    const subscription = supabase
+      .channel(`progress-results-${research_id}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'research_results_new',
+        filter: `research_id=eq.${research_id}`
+      }, (payload) => {
+        console.log('Research result update received:', payload);
+        
+        // Mark results as available
+        if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+          console.log('Setting resultsAvailable to true');
+          setResultsAvailable(true);
+          
+          // Also mark research as complete if not already
+          if (!isComplete) {
+            setIsComplete(true);
+          }
+        }
+      })
+      .subscribe();
+
+    // Check if results already exist
+    const checkExistingResults = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('research_results_new')
+          .select('result_id')
+          .eq('research_id', research_id)
+          .limit(1);
+        
+        if (!error && data && data.length > 0) {
+          console.log('Existing results found:', data);
+          setResultsAvailable(true);
+        }
+      } catch (err) {
+        console.error('Error checking for existing results:', err);
+      }
+    };
+    
+    checkExistingResults();
+
+    return () => {
+      console.log('Cleaning up research results subscription');
+      supabase.removeChannel(subscription);
+    };
+  }, [research_id, isComplete]);
+  
   // Navigate to results screen
   const viewResults = () => {
-    navigation.navigate('ResearchResultScreen', { research_id });
+    console.log(`Navigating to ResearchResultScreen with research_id: ${research_id}`);
+    
+    if (!resultsAvailable) {
+      console.log('Results not fully available yet, but will navigate and show loading state');
+      toast.info('Your research report is still being prepared');
+    }
+    
+    // Pass the research_id both as research_id and researchId to ensure compatibility
+    navigation.navigate('ResearchResultScreen', { 
+      researchId: research_id,
+      research_id: research_id  // Redundant but ensures backward compatibility
+    });
   };
   
   const progressWidth = progressAnimValue.interpolate({
@@ -466,8 +534,17 @@ const ResearchProgressScreen = () => {
               end={{ x: 1, y: 0 }}
               style={styles.resultsButtonGradient}
             >
-              <MaterialIcons name="assignment-turned-in" size={20} color="#fff" />
-              <Text style={styles.resultsButtonText}>View Results</Text>
+              {!resultsAvailable ? (
+                <>
+                  <ActivityIndicator size="small" color="#fff" style={styles.loadingIcon} />
+                  <Text style={styles.resultsButtonText}>Results Processing...</Text>
+                </>
+              ) : (
+                <>
+                  <MaterialIcons name="assignment-turned-in" size={20} color="#fff" />
+                  <Text style={styles.resultsButtonText}>View Results</Text>
+                </>
+              )}
             </LinearGradient>
           </TouchableOpacity>
         ) : (
@@ -825,6 +902,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#fff',
     marginLeft: 4,
+  },
+  loadingIcon: {
+    marginRight: 8,
   },
 });
 

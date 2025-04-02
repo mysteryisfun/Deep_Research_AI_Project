@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   View, 
   Text, 
@@ -9,6 +9,8 @@ import {
   ActivityIndicator,
   Share,
   Platform,
+  Clipboard,
+  Animated,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -21,6 +23,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { MotiView } from 'moti';
 import { toast } from 'sonner-native';
+import Markdown from 'react-native-markdown-display';
 import { useTheme } from '../context/ThemeContext';
 import { useResearch } from '../context/ResearchContext';
 import { supabase } from '../context/supabase';
@@ -77,72 +80,160 @@ export default function ResearchResultScreen() {
   const navigation = useNavigation<NavigationProp>();
   const route = useRoute();
   const { theme } = useTheme();
-  const { currentResearch, result, setCurrentResearch } = useResearch();
+  const { currentResearch, result: contextResult, setCurrentResearch } = useResearch();
   
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [researchResult, setResearchResult] = useState<any>(null);
+  const [waitingForResults, setWaitingForResults] = useState(false);
+  const supabaseSubscriptionRef = useRef<any>(null);
+  const pulseAnimation = useRef(new Animated.Value(1)).current;
+  // Add a ref to track if we've already attempted to fetch data
+  const hasAttemptedFetch = useRef(false);
   
   // Feedback state
-  const [rating, setRating] = useState(0);
+  const [rating, setRating] = useState<number | null>(null);
   const [feedbackComment, setFeedbackComment] = useState('');
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
   
-  // Extract research ID from route params
-  const researchId = (route.params as RouteParams)?.researchId;
+  // Extract research ID from route params - be more flexible with param names
+  const routeParams = route.params || {};
+  const researchId = (routeParams as any).researchId || (routeParams as any).research_id;
   
-  // Fetch research data
+  // Add some debugging for route params
   useEffect(() => {
-    const fetchResearchData = async () => {
-      if (!researchId) {
-        setError('No research ID provided');
+    console.log('ResearchResultScreen mounted with params:', JSON.stringify(route.params));
+    console.log('Extracted researchId:', researchId);
+  }, [route.params, researchId]);
+  
+  // Set up realtime subscription for result updates
+  useEffect(() => {
+    if (!researchId) return;
+    
+    console.log('Setting up realtime subscription for research result updates');
+    
+    // Set up realtime subscription
+    const channel = supabase.channel('research_results')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'research_results_new',
+          filter: `research_id=eq.${researchId}`
+        },
+        async (payload) => {
+          console.log('Received realtime update:', payload);
+          
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            const newResult = payload.new;
+            console.log('New result received:', newResult);
+            
+            setResearchResult(newResult);
+            setWaitingForResults(false);
         setIsLoading(false);
-        return;
+            toast.success('Research results updated!');
+          }
+        }
+      )
+      .subscribe();
+      
+    // Store subscription ref for cleanup
+    supabaseSubscriptionRef.current = channel;
+    
+    return () => {
+      console.log('Cleaning up realtime subscription');
+      if (supabaseSubscriptionRef.current) {
+        supabase.removeChannel(supabaseSubscriptionRef.current);
       }
-
+    };
+  }, [researchId]);
+  
+  // Initial data fetch - completely rewritten to prevent loops
+  useEffect(() => {
+    if (!researchId) return;
+    
+    if (hasAttemptedFetch.current) {
+      console.log('Already attempted fetch for this research ID, skipping to prevent loops');
+      return;
+    }
+    
+    const fetchInitialData = async () => {
+      console.log('Fetching initial data for research:', researchId);
       setIsLoading(true);
       setError(null);
+      hasAttemptedFetch.current = true;
       
       try {
-        // Get current user
-        const { data: { user }, error: userError } = await supabase.auth.getUser();
-        
-        if (userError) {
-          console.error('Error getting user:', userError);
-          throw new Error('Failed to get user information');
-        }
-        
-        if (!user) {
-          navigation.replace('LoginScreen');
-          return;
-        }
-
-        // Fetch research data
-        const { data, error } = await supabase
+        // Try to fetch research data, but don't fail if not found
+        const { data: researchData } = await supabase
           .from('research_history_new')
           .select('*')
           .eq('research_id', researchId)
-          .single();
+          .maybeSingle();
         
-        if (error) throw error;
-        
-        if (!data) {
-          throw new Error('Research not found');
+        // Set research data if we found it
+        if (researchData) {
+          console.log('Setting current research:', researchData);
+          setCurrentResearch(researchData);
         }
-
-        // Set current research in context
-        setCurrentResearch(data);
+        
+        // Try to fetch results
+        const { data: resultsData } = await supabase
+          .from('research_results_new')
+          .select('*')
+          .eq('research_id', researchId)
+          .order('created_at', { ascending: false })
+          .maybeSingle();
+          
+        if (resultsData) {
+          console.log('Found result data:', resultsData);
+          setResearchResult(resultsData);
+          setWaitingForResults(false);
+        } else {
+          console.log('No results found, waiting for updates');
+          setWaitingForResults(true);
+        }
       } catch (err) {
-        console.error('Error fetching research:', err);
-        setError('Failed to load research data. Please try again.');
-        toast.error('Could not load research report');
+        console.error('Error in fetchInitialData:', err);
+        // Don't set error, just put in waiting state
+        setWaitingForResults(true);
       } finally {
         setIsLoading(false);
       }
     };
     
-    fetchResearchData();
-  }, [researchId, navigation, setCurrentResearch]);
+    fetchInitialData();
+    
+    // No dependencies to prevent refetching
+  }, [researchId]);
+  
+  // Set up pulse animation for waiting state
+  useEffect(() => {
+    if (waitingForResults) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnimation, {
+            toValue: 1.1,
+            duration: 1000,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnimation, {
+            toValue: 1,
+            duration: 1000,
+            useNativeDriver: true,
+          })
+        ])
+      ).start();
+    } else {
+      pulseAnimation.setValue(1);
+    }
+    
+    return () => {
+      pulseAnimation.stopAnimation();
+    };
+  }, [waitingForResults, pulseAnimation]);
   
   const handleSubmitFeedback = async () => {
     if (!researchId || !rating) {
@@ -174,10 +265,10 @@ export default function ResearchResultScreen() {
   };
   
   const handleShare = async () => {
-    if (!currentResearch || !result) return;
+    if (!currentResearch || !researchResult) return;
     
     try {
-      const shareText = `Research Query: ${currentResearch.query}\n\nResult: ${result.result}`;
+      const shareText = `Research Query: ${currentResearch.query}\n\nResult: ${researchResult.result}`;
       await Share.share({
         message: shareText,
         title: 'Research Result',
@@ -188,56 +279,31 @@ export default function ResearchResultScreen() {
     }
   };
 
-  // Format the research content from markdown to a simplified version
-  const formatContent = (content) => {
-    if (!content) return '';
+  const handleCopyToClipboard = () => {
+    if (!researchResult?.result) return;
     
-    // Split content into sections based on markdown headers
-    const sections = content.split(/(?=^# )/m);
-    
-    return sections.map((section, index) => {
-      // Handle main title (h1)
-      if (section.startsWith('# ')) {
-        const title = section.replace('# ', '').split('\n')[0];
-        const rest = section.split('\n').slice(1).join('\n');
-        return (
-          <View key={index} style={styles.sectionContainer}>
-            <Text style={styles.contentH1}>{title}</Text>
-            {rest && <Text style={styles.contentParagraph}>{rest}</Text>}
-          </View>
-        );
-      }
-      
-      // Handle subtitles (h2)
-      if (section.includes('\n## ')) {
-        const parts = section.split(/(?=\n## )/);
-        return (
-          <View key={index} style={styles.sectionContainer}>
-            {parts.map((part, partIndex) => {
-              if (part.trim().startsWith('## ')) {
-                const title = part.replace('## ', '').split('\n')[0];
-                const rest = part.split('\n').slice(1).join('\n');
-                return (
-                  <View key={`${index}-${partIndex}`}>
-                    <Text style={styles.contentH2}>{title}</Text>
-                    {rest && <Text style={styles.contentParagraph}>{rest}</Text>}
-                  </View>
-                );
-              }
-              return <Text key={`${index}-${partIndex}`} style={styles.contentParagraph}>{part}</Text>;
-            })}
-          </View>
-        );
-      }
-      
-      // Handle regular paragraphs
-      return (
-        <View key={index} style={styles.sectionContainer}>
-          <Text style={styles.contentParagraph}>{section}</Text>
-        </View>
-      );
-    });
+    try {
+      Clipboard.setString(researchResult.result);
+      toast.success('Research content copied to clipboard');
+    } catch (err) {
+      console.error('Error copying to clipboard:', err);
+      toast.error('Failed to copy to clipboard');
+    }
   };
+
+  // Move the currentResearch check outside of the render path
+  useEffect(() => {
+    // If we have a research result but no currentResearch data, create a minimal placeholder
+    if (researchResult && !currentResearch && researchId) {
+      console.log('Creating minimal research context from result data');
+      setCurrentResearch({
+        research_id: researchId,
+        query: 'Research query',
+        created_at: researchResult.created_at,
+        user_id: researchResult.user_id || 'unknown'
+      });
+    }
+  }, [researchResult, currentResearch, researchId, setCurrentResearch]);
 
   if (isLoading) {
     return (
@@ -246,7 +312,43 @@ export default function ResearchResultScreen() {
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={theme.accent} />
           <Text style={[styles.loadingText, { color: theme.text }]}>
-            Loading research report...
+            Loading research...
+          </Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+  
+  if (waitingForResults) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+        <StatusBar style={theme.statusBar === 'light' ? 'light' : 'dark'} />
+        
+        {/* Header */}
+        <View style={[styles.header, { backgroundColor: theme.card }]}>
+          <TouchableOpacity 
+            style={styles.backButton}
+            onPress={() => navigation.goBack()}
+          >
+            <Ionicons name="arrow-back" size={24} color={theme.text} />
+          </TouchableOpacity>
+          <Text style={[styles.headerTitle, { color: theme.text }]}>
+            Research Result
+          </Text>
+          <View style={styles.placeholder} />
+        </View>
+        
+        <View style={styles.waitingContainer}>
+          <Animated.View style={{
+            transform: [{ scale: pulseAnimation }]
+          }}>
+            <ActivityIndicator size="large" color={theme.accent} />
+          </Animated.View>
+          <Text style={[styles.waitingText, { color: theme.text }]}>
+            Preparing Research Results...
+          </Text>
+          <Text style={[styles.waitingSubText, { color: theme.secondaryText }]}>
+            Your research report is being generated. This may take a few moments.
           </Text>
         </View>
       </SafeAreaView>
@@ -273,26 +375,8 @@ export default function ResearchResultScreen() {
     );
   }
 
-  if (!currentResearch || !result) {
-    return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-        <StatusBar style={theme.statusBar === 'light' ? 'light' : 'dark'} />
-        <View style={styles.errorContainer}>
-          <MaterialIcons name="search-off" size={64} color="#FF3B30" />
-          <Text style={[styles.errorText, { color: theme.text }]}>
-            Research not found
-          </Text>
-        <TouchableOpacity 
-            style={[styles.retryButton, { backgroundColor: theme.accent }]}
-            onPress={() => navigation.goBack()}
-        >
-            <Text style={styles.retryButtonText}>Go Back</Text>
-        </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    );
-  }
-
+  // Check if we have research results to display, regardless of currentResearch
+  if (researchResult) {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <StatusBar style={theme.statusBar === 'light' ? 'light' : 'dark'} />
@@ -311,6 +395,7 @@ export default function ResearchResultScreen() {
         <TouchableOpacity 
           style={styles.shareButton}
           onPress={handleShare}
+            disabled={!currentResearch}
         >
           <MaterialIcons name="share" size={24} color={theme.text} />
         </TouchableOpacity>
@@ -322,13 +407,75 @@ export default function ResearchResultScreen() {
       >
         {/* Research Content */}
         <View style={[styles.researchCard, { backgroundColor: theme.card }]}>
-          <Text style={[styles.queryText, { color: theme.text }]}>
-            {currentResearch.query}
+            {/* Render markdown content with null check */}
+            {researchResult?.result ? (
+              <View style={styles.markdownContainer}>
+                <Markdown
+                  style={{
+                    body: { color: theme.text },
+                    heading1: { color: theme.text, fontSize: 24, fontWeight: 'bold', marginBottom: 16, marginTop: 16 },
+                    heading2: { color: theme.text, fontSize: 20, fontWeight: '600', marginBottom: 12, marginTop: 20 },
+                    heading3: { color: theme.text, fontSize: 18, fontWeight: '600', marginBottom: 10, marginTop: 16 },
+                    paragraph: { color: theme.text, fontSize: 16, lineHeight: 24, marginBottom: 12 },
+                    strong: { color: theme.text, fontWeight: 'bold' },
+                    em: { color: theme.text, fontStyle: 'italic' },
+                    link: { color: theme.accent },
+                    blockquote: { 
+                      borderLeftWidth: 4, 
+                      borderLeftColor: theme.accent,
+                      paddingLeft: 16,
+                      marginLeft: 0,
+                      marginVertical: 12,
+                    },
+                    bullet_list: { marginBottom: 12 },
+                    ordered_list: { marginBottom: 12 },
+                    list_item: { color: theme.text, marginBottom: 8 },
+                    code_block: { 
+                      backgroundColor: theme.secondaryBackground || '#1a1a1a',
+                      padding: 16,
+                      borderRadius: 8,
+                      color: theme.text,
+                      fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+                      marginVertical: 12,
+                    },
+                    code_inline: {
+                      backgroundColor: theme.secondaryBackground || '#1a1a1a',
+                      padding: 4,
+                      borderRadius: 4,
+                      color: theme.accent,
+                      fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+                    },
+                    hr: { backgroundColor: theme.border, marginVertical: 16 },
+                    table: { borderWidth: 1, borderColor: theme.border, marginVertical: 16 },
+                    thead: { backgroundColor: theme.secondaryBackground || '#1a1a1a' },
+                    th: { padding: 8, color: theme.text, fontWeight: 'bold' },
+                    td: { padding: 8, borderTopWidth: 1, borderTopColor: theme.border, color: theme.text },
+                    image: { maxWidth: '100%', height: 'auto', marginVertical: 16, borderRadius: 8 }
+                  }}
+                >
+                  {researchResult.result}
+                </Markdown>
+                
+                <View style={styles.contentActions}>
+                  <TouchableOpacity
+                    style={[styles.actionButton, { backgroundColor: theme.secondaryBackground }]}
+                    onPress={handleCopyToClipboard}
+                  >
+                    <View style={styles.actionButtonContent}>
+                      <MaterialIcons name="content-copy" size={18} color={theme.text} />
+                      <Text style={[styles.actionButtonText, { color: theme.text }]}>Copy Content</Text>
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : (
+              <View style={styles.noResultContainer}>
+                <MaterialIcons name="info-outline" size={48} color={theme.secondaryText} />
+                <Text style={[styles.noResultText, { color: theme.secondaryText }]}>
+                  Waiting for results...
           </Text>
-          <Text style={[styles.dateText, { color: theme.secondaryText }]}>
-            {new Date(currentResearch.created_at).toLocaleDateString()}
-          </Text>
-          {formatContent(result.result)}
+              </View>
+            )}
         </View>
         
         {/* Feedback Section */}
@@ -338,8 +485,8 @@ export default function ResearchResultScreen() {
               Rate this Research
           </Text>
             <StarRating
-              rating={rating}
-              setRating={setRating}
+                rating={rating || 0}
+                setRating={(newRating) => setRating(newRating)}
               disabled={isSubmittingFeedback}
             />
               <TextInput
@@ -375,6 +522,26 @@ export default function ResearchResultScreen() {
           </View>
           )}
       </ScrollView>
+      </SafeAreaView>
+    );
+  }
+
+  // Fallback if we have no result and aren't waiting (should rarely happen)
+  return (
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+      <StatusBar style={theme.statusBar === 'light' ? 'light' : 'dark'} />
+      <View style={styles.errorContainer}>
+        <MaterialIcons name="search-off" size={64} color="#FF3B30" />
+        <Text style={[styles.errorText, { color: theme.text }]}>
+          Research not found
+        </Text>
+        <TouchableOpacity 
+          style={[styles.retryButton, { backgroundColor: theme.accent }]}
+          onPress={() => navigation.goBack()}
+        >
+          <Text style={styles.retryButtonText}>Go Back</Text>
+        </TouchableOpacity>
+      </View>
     </SafeAreaView>
   );
 }
@@ -516,5 +683,61 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     color: '#555',
     marginBottom: 12,
+  },
+  markdownContainer: {
+    marginBottom: 16,
+  },
+  noResultContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  noResultText: {
+    fontSize: 16,
+    textAlign: 'center',
+    marginTop: 16,
+  },
+  contentActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    marginTop: 24,
+  },
+  actionButton: {
+    padding: 8,
+    borderRadius: 8,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  actionButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  actionButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+    marginLeft: 6,
+  },
+  waitingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 32,
+  },
+  waitingText: {
+    fontSize: 18,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  waitingSubText: {
+    fontSize: 14,
+    textAlign: 'center',
+    marginHorizontal: 32,
+  },
+  placeholder: {
+    width: 24,
   },
 });

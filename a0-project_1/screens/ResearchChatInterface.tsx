@@ -28,15 +28,22 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { MotiView, MotiText } from 'moti';
 import { toast } from 'sonner-native';
+import { supabase } from '../context/supabase';
 
 // Message types
-const MESSAGE_TYPES = {
-  SYSTEM: 'system',
-  USER: 'user',
-  AI: 'ai',
-  QUESTION: 'question',
-  ANSWER: 'answer',
-};
+interface Message {
+  id: string;
+  text: string;
+  sender: 'user' | 'assistant';
+  timestamp: Date;
+}
+
+// Research topic type
+interface ResearchTopic {
+  id: string;
+  title: string;
+  status: 'pending' | 'in_progress' | 'completed';
+}
 
 // Sample follow-up questions (will be replaced with API calls later)
 const SAMPLE_QUESTIONS = [
@@ -197,9 +204,12 @@ export default function ResearchChatInterface() {
   // Research state
   const [isResearching, setIsResearching] = useState(false);
   const [showTopics, setShowTopics] = useState(false);
-  const [researchTopics, setResearchTopics] = useState([]);
+  const [researchTopics, setResearchTopics] = useState<ResearchTopic[]>([]);
   const [researchProgress, setResearchProgress] = useState(0);
-  const [researchStatus, setResearchStatus] = useState('Initializing');
+  const [researchStatus, setResearchStatus] = useState('Starting research...');
+  const [currentResearchId, setCurrentResearchId] = useState<string | null>(null);
+  const [researchComplete, setResearchComplete] = useState(false);
+  const [resultsAvailable, setResultsAvailable] = useState(false);
   
   const flatListRef = useRef(null);
   const progressAnim = useRef(new Animated.Value(0)).current;  // Initialize chat with welcome message including research parameters
@@ -232,6 +242,56 @@ export default function ResearchChatInterface() {
       }, 100);
     }
   }, [messages]);
+  
+  // Monitor for research results when research is complete
+  useEffect(() => {
+    if (!currentResearchId || !researchComplete) return;
+
+    console.log(`Setting up real-time monitoring for research results: ${currentResearchId}`);
+
+    // Set up subscription for research results
+    const subscription = supabase
+      .channel(`chat-results-${currentResearchId}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'research_results_new',
+        filter: `research_id=eq.${currentResearchId}`
+      }, (payload) => {
+        console.log('Research result update received:', payload);
+        
+        if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+          console.log('Research results are available');
+          setResultsAvailable(true);
+        }
+      })
+      .subscribe();
+
+    // Check if results already exist
+    const checkExistingResults = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('research_results_new')
+          .select('result_id')
+          .eq('research_id', currentResearchId)
+          .limit(1);
+        
+        if (!error && data && data.length > 0) {
+          console.log('Existing results found');
+          setResultsAvailable(true);
+        }
+      } catch (err) {
+        console.error('Error checking for existing results:', err);
+      }
+    };
+    
+    checkExistingResults();
+
+    return () => {
+      console.log('Cleaning up research results subscription');
+      supabase.removeChannel(subscription);
+    };
+  }, [currentResearchId, researchComplete]);
   
   // Handle submitting answer to follow-up question
   const submitAnswer = async () => {
@@ -419,6 +479,225 @@ export default function ResearchChatInterface() {
     return responses[Math.floor(Math.random() * responses.length)];
   };
   
+  // Handle research completion
+  const handleResearchComplete = () => {
+    setResearchComplete(true);
+    setResearchProgress(100);
+    setResearchStatus('Research complete!');
+    
+    // Toast notification
+    toast.success('Research complete! View results');
+  };
+  
+  // Navigate to results screen
+  const viewResearchResults = () => {
+    if (!currentResearchId) return;
+    
+    console.log(`Navigating to results screen for research ID: ${currentResearchId}`);
+    // Navigate to results screen with both parameter formats for compatibility
+    navigation.navigate('ResearchResultScreen', {
+      researchId: currentResearchId,
+      research_id: currentResearchId
+    });
+  };
+  
+  const handleSendMessage = async () => {
+    if (!inputText.trim()) return;
+    
+    // Create a new message
+    const newMessage: Message = {
+      id: `user-${Date.now()}`,
+      text: inputText.trim(),
+      sender: 'user',
+      timestamp: new Date()
+    };
+    
+    // Clear input and add user message to chat
+    setInputText('');
+    setMessages(prev => [...prev, newMessage]);
+    
+    // Auto scroll to bottom
+    setTimeout(() => {
+      if (flatListRef.current) {
+        flatListRef.current.scrollToEnd({ animated: true });
+      }
+    }, 100);
+    
+    // Process user message and get response
+    try {
+      // Check if this is a research command
+      if (inputText.toLowerCase().includes('research') || 
+          inputText.toLowerCase().includes('investigate') ||
+          inputText.toLowerCase().includes('find information')) {
+        setIsResearching(true);
+        
+        // Generate a research ID
+        const newResearchId = `research-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+        setCurrentResearchId(newResearchId);
+        
+        // Simulate research progress
+        simulateResearchProgress();
+        
+        // Add response indicating research has begun
+        const researchResponse: Message = {
+          id: `assistant-${Date.now()}`,
+          text: `I'll research "${inputText}" for you. This might take a few minutes.`,
+          sender: 'assistant',
+          timestamp: new Date()
+        };
+        
+        setTimeout(() => {
+          setMessages(prev => [...prev, researchResponse]);
+        }, 1000);
+        
+        return;
+      }
+      
+      // Check if message contains a research completion notification
+      if (inputText.toLowerCase().includes('research complete') || 
+          inputText.toLowerCase().includes('finished researching')) {
+        
+        // Extract potential research ID
+        const idMatch = inputText.match(/research-\d+-\d+/);
+        if (idMatch && idMatch[0]) {
+          const extractedId = idMatch[0];
+          console.log(`Detected research completion for ID: ${extractedId}`);
+          
+          // Update state for research completion
+          setCurrentResearchId(extractedId);
+          handleResearchComplete();
+          
+          // Add assistant acknowledgment
+          const completionResponse: Message = {
+            id: `assistant-${Date.now()}`,
+            text: `Great! I've completed the research. You can now view the detailed results.`,
+            sender: 'assistant',
+            timestamp: new Date()
+          };
+          
+          setTimeout(() => {
+            setMessages(prev => [...prev, completionResponse]);
+          }, 500);
+          
+          return;
+        }
+      }
+      
+      // Show typing indicator
+      setIsTyping(true);
+      
+      // Get regular chat response
+      const response = await getAssistantResponse(inputText);
+      
+      // Create assistant message
+      const assistantMessage: Message = {
+        id: `assistant-${Date.now()}`,
+        text: response,
+        sender: 'assistant',
+        timestamp: new Date()
+      };
+      
+      // Wait a bit before showing response
+      setTimeout(() => {
+        setIsTyping(false);
+        setMessages(prev => [...prev, assistantMessage]);
+        
+        // Auto scroll to bottom again after response
+        setTimeout(() => {
+          if (flatListRef.current) {
+            flatListRef.current.scrollToEnd({ animated: true });
+          }
+        }, 100);
+      }, 1000);
+      
+    } catch (error) {
+      console.error('Error getting response:', error);
+      setIsTyping(false);
+      
+      // Show error message
+      toast.error('Something went wrong. Please try again.');
+    }
+  };
+  
+  // Simulate research progress
+  const simulateResearchProgress = () => {
+    // Reset progress
+    setResearchProgress(0);
+    setResearchStatus('Starting research...');
+    setResearchComplete(false);
+    setResultsAvailable(false);
+    
+    // Generate some sample research topics
+    const sampleTopics: ResearchTopic[] = [
+      { id: '1', title: 'Background Information', status: 'pending' },
+      { id: '2', title: 'Key Concepts', status: 'pending' },
+      { id: '3', title: 'Recent Developments', status: 'pending' },
+      { id: '4', title: 'Expert Perspectives', status: 'pending' },
+      { id: '5', title: 'Related Studies', status: 'pending' }
+    ];
+    
+    setResearchTopics(sampleTopics);
+    setShowTopics(true);
+    
+    // Simulate progress updates
+    let progress = 0;
+    const statuses = [
+      'Starting research...',
+      'Gathering initial information...',
+      'Analyzing sources...',
+      'Compiling research findings...',
+      'Reviewing information quality...',
+      'Finalizing research report...',
+      'Research complete!'
+    ];
+    
+    const interval = setInterval(() => {
+      progress += Math.random() * 10;
+      
+      if (progress >= 100) {
+        progress = 100;
+        clearInterval(interval);
+        
+        // Mark research as complete
+        handleResearchComplete();
+        
+        // Update topics
+        const updatedTopics = [...sampleTopics].map(topic => ({
+          ...topic,
+          status: 'completed'
+        }));
+        setResearchTopics(updatedTopics);
+      } else {
+        // Update status text occasionally
+        const statusIndex = Math.min(
+          Math.floor(progress / (100 / statuses.length)),
+          statuses.length - 1
+        );
+        setResearchStatus(statuses[statusIndex]);
+        
+        // Update topics progressively
+        if (progress > 20) {
+          const updatedTopics = [...sampleTopics];
+          const completedCount = Math.floor((progress / 100) * updatedTopics.length);
+          
+          updatedTopics.forEach((topic, index) => {
+            if (index < completedCount) {
+              updatedTopics[index] = { ...topic, status: 'completed' };
+            } else if (index === completedCount) {
+              updatedTopics[index] = { ...topic, status: 'in_progress' };
+            }
+          });
+          
+          setResearchTopics(updatedTopics);
+        }
+      }
+      
+      setResearchProgress(progress);
+    }, 1000);
+    
+    return () => clearInterval(interval);
+  };
+  
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="light" />
@@ -508,6 +787,32 @@ export default function ResearchChatInterface() {
               <Text style={styles.progressPercentage}>
                 {Math.round(researchProgress)}%
               </Text>
+              
+              {researchComplete && (
+                <MotiView
+                  from={{ opacity: 0, translateY: 10 }}
+                  animate={{ opacity: 1, translateY: 0 }}
+                  transition={{ type: 'timing', duration: 500 }}
+                  style={styles.resultsButtonContainer}
+                >
+                  <TouchableOpacity
+                    style={styles.viewResultsButton}
+                    onPress={viewResearchResults}
+                  >
+                    {!resultsAvailable ? (
+                      <View style={styles.buttonContent}>
+                        <ActivityIndicator size="small" color="#fff" style={styles.buttonIcon} />
+                        <Text style={styles.viewResultsText}>Preparing Results...</Text>
+                      </View>
+                    ) : (
+                      <View style={styles.buttonContent}>
+                        <MaterialIcons name="assignment-turned-in" size={18} color="#fff" />
+                        <Text style={styles.viewResultsText}>View Research Results</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                </MotiView>
+              )}
             </View>
           )}
           
@@ -758,18 +1063,10 @@ const styles = StyleSheet.create({  container: {
     marginTop: 4,
     fontWeight: '500',
   },  progressContainer: {
-    backgroundColor: 'rgba(30, 41, 59, 0.7)',
+    backgroundColor: 'rgba(0, 0, 0, 0.05)',
+    borderRadius: 12,
     padding: 16,
-    margin: 16,
-    marginTop: 0,
-    borderRadius: 16,
-    shadowColor: '#6c63ff',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    elevation: 5,
-    borderWidth: 1,
-    borderColor: 'rgba(108, 99, 255, 0.3)',
+    marginVertical: 16,
   },
   progressTitle: {
     fontSize: 16,
@@ -1032,5 +1329,28 @@ const styles = StyleSheet.create({  container: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  resultsButtonContainer: {
+    marginTop: 16,
+    alignItems: 'center',
+  },
+  viewResultsButton: {
+    backgroundColor: '#10B981',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+  },
+  buttonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewResultsText: {
+    color: '#fff',
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  buttonIcon: {
+    marginRight: 8,
   },
 });

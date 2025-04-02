@@ -459,41 +459,53 @@ export function monitorQuestions(
   onQuestionsUpdate: (questions: ResearchQuestion[]) => void,
   pollingInterval = 2000
 ): () => void {
-  console.log(`Starting question monitoring for research: ${researchId}`);
+  let isCancelled = false;
+  let lastQuestionsLength = 0;
+  let consecutiveUnchangedCount = 0;
   
-  let lastQuestionCount = 0;
-  let isActive = true;
-  
-  // Function to check for new questions
   const checkForQuestions = async () => {
-    if (!isActive) return;
+    if (isCancelled) return;
     
     try {
       const questions = await fetchQuestions(researchId);
       
-      // Check if there are any changes
-      if (questions.length !== lastQuestionCount) {
-        console.log(`Questions updated: ${lastQuestionCount} → ${questions.length}`);
-        lastQuestionCount = questions.length;
+      // Only call onQuestionsUpdate if questions length changed or first call
+      if (questions.length !== lastQuestionsLength || lastQuestionsLength === 0) {
         onQuestionsUpdate(questions);
+        lastQuestionsLength = questions.length;
+        consecutiveUnchangedCount = 0;
+      } else {
+        // If we've seen the same number of questions multiple times, count it
+        consecutiveUnchangedCount++;
+      }
+      
+      // Stop polling if we already have questions and they haven't changed for 3 consecutive checks
+      if (questions.length > 0 && consecutiveUnchangedCount >= 3) {
+        console.log(`Stopping question polling for research: ${researchId} - questions stable`);
+        isCancelled = true;
+        return;
+      }
+      
+      // Schedule next check if not cancelled
+      if (!isCancelled) {
+        setTimeout(checkForQuestions, pollingInterval);
       }
     } catch (error) {
-      console.error('Error in question monitoring:', error);
-    }
-    
-    // Schedule the next check if still active
-    if (isActive) {
-      setTimeout(checkForQuestions, pollingInterval);
+      console.error('Error in checkForQuestions:', error);
+      // Still schedule next check even on error
+      if (!isCancelled) {
+        setTimeout(checkForQuestions, pollingInterval);
+      }
     }
   };
   
-  // Start the initial check
+  // Start checking
   checkForQuestions();
   
-  // Return a function to stop the polling
+  // Return a function to cancel the monitoring
   return () => {
-    console.log(`Stopping question monitoring for research: ${researchId}`);
-    isActive = false;
+    console.log(`Cancelling question monitoring for research: ${researchId}`);
+    isCancelled = true;
   };
 }
 

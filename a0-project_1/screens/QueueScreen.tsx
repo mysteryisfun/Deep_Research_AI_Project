@@ -31,6 +31,15 @@ interface ResearchItem {
   status: string;
   created_at: string;
   completed_at?: string | null;
+  has_results?: boolean;
+}
+
+interface ResearchResult {
+  result_id: string;
+  research_id: string;
+  user_id: string;
+  result: string;
+  created_at: string;
 }
 
 // Research card item props
@@ -83,7 +92,7 @@ const ResearchCard = ({ item, index, onViewDetails }: ResearchCardProps) => {
     <MotiView
       from={{ opacity: 0, translateY: 20 }}
       animate={{ opacity: 1, translateY: 0 }}
-      exit={{ opacity: 0, translateY: -20 }}
+      transition={{ type: 'spring', damping: 18, stiffness: 120 }}
       delay={index * 100}
       style={styles.researchCard}
     >
@@ -127,13 +136,20 @@ const ResearchCard = ({ item, index, onViewDetails }: ResearchCardProps) => {
           </View>
         </View>
         
-        <TouchableOpacity 
-          style={styles.viewButton}
-          onPress={() => onViewDetails(item.research_id)}
-        >
-          <Text style={styles.viewButtonText}>View Progress</Text>
-          <MaterialIcons name="arrow-forward" size={16} color="#6c63ff" />
-        </TouchableOpacity>
+        {item.has_results ? (
+          <TouchableOpacity 
+            style={styles.viewButton}
+            onPress={() => onViewDetails(item.research_id)}
+          >
+            <Text style={styles.viewButtonText}>View Progress</Text>
+            <MaterialIcons name="arrow-forward" size={16} color="#6c63ff" />
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.waitingButton}>
+            <Text style={styles.waitingButtonText}>Waiting for results...</Text>
+            <ActivityIndicator size="small" color="rgba(108, 99, 255, 0.7)" />
+          </View>
+        )}
       </LinearGradient>
     </MotiView>
   );
@@ -142,24 +158,27 @@ const ResearchCard = ({ item, index, onViewDetails }: ResearchCardProps) => {
 export default function QueueScreen() {
   const navigation = useNavigation();
   const [researchItems, setResearchItems] = useState<ResearchItem[]>([]);
+  const [researchResults, setResearchResults] = useState<{[key: string]: boolean}>({});
   const [isLoading, setIsLoading] = useState(true);
   const [isInsertingTestData, setIsInsertingTestData] = useState(false);
   const [userId, setUserId] = useState<string>('');
-  const [isBackgroundFetching, setIsBackgroundFetching] = useState(false);
+  const [isFetching, setIsFetching] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(new Date());
-  const [fetchError, setFetchError] = useState<string | null>(null);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const supabaseSubscriptionRef = useRef<any>(null);
   const { theme } = useTheme();
   
-  // Get current user ID from Supabase auth
+  // Get current user ID from Supabase auth - This is just informational now
   useEffect(() => {
     const getCurrentUser = async () => {
       try {
         const { data: { user } } = await supabase.auth.getUser();
+        
         if (user) {
           console.log('Authenticated user found:', user.id);
           setUserId(user.id);
         } else {
+          // For testing: generate a user ID if not logged in
           const testId = 'user-test-123';
           console.warn('No authenticated user found, using test ID:', testId);
           setUserId(testId);
@@ -173,94 +192,148 @@ export default function QueueScreen() {
     getCurrentUser();
   }, []);
   
-  // Initial data load
+  // Initial data load - independent of userId
   useEffect(() => {
-    fetchResearchItems(true);
+    // Fetch data immediately on component mount
+    fetchResearchItems();
+    fetchResearchResults();
   }, []);
   
-  // Set up polling interval of 5 seconds
+  // Set up Supabase real-time subscription
   useEffect(() => {
-    console.log('Setting up polling interval for research data');
+    console.log('Setting up real-time subscription for research data');
     
+    // Subscribe to research_history_new changes
+    const historyChannel = supabase
+      .channel('realtime:research_history')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'research_history_new' },
+        (payload) => {
+          console.log('Research history change received:', payload);
+          
+          setResearchItems(prevItems => {
+            if (payload.eventType === 'INSERT') {
+              if (payload.new.status === 'completed') return prevItems;
+              return [payload.new, ...prevItems];
+            }
+            if (payload.eventType === 'UPDATE') {
+              if (payload.new.status === 'completed') {
+                return prevItems.filter(item => item.research_id !== payload.new.research_id);
+              }
+              return prevItems.map(item => 
+                item.research_id === payload.new.research_id ? payload.new : item
+              );
+            }
+            if (payload.eventType === 'DELETE') {
+              return prevItems.filter(item => item.research_id !== payload.old.research_id);
+            }
+            return prevItems;
+          });
+          
+          setLastUpdate(new Date());
+        }
+      )
+      .subscribe();
+      
+    // Subscribe to research_results_new changes  
+    const resultsChannel = supabase
+      .channel('realtime:research_results')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'research_results_new' },
+        (payload) => {
+          console.log('Research result change received:', payload);
+          
+          if (payload.eventType === 'INSERT') {
+            setResearchResults(prev => ({
+              ...prev,
+              [payload.new.research_id]: true
+            }));
+          }
+        }
+      )
+      .subscribe();
+    
+    // Store subscription refs for cleanup
+    supabaseSubscriptionRef.current = [historyChannel, resultsChannel];
+    
+    // Clear any existing polling interval
     if (pollingIntervalRef.current) {
       clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
     }
     
-    pollingIntervalRef.current = setInterval(() => {
-      fetchResearchItems(false);
-    }, 5000);
-    
     return () => {
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-        pollingIntervalRef.current = null;
+      console.log('Cleaning up real-time subscriptions');
+      if (supabaseSubscriptionRef.current) {
+        supabaseSubscriptionRef.current.forEach((channel: any) => {
+          supabase.removeChannel(channel);
+        });
       }
     };
   }, []);
   
-  // Fetch research items with complete debug logging
-  const fetchResearchItems = async (showLoading: boolean = false) => {
-    // Set appropriate loading state
-    if (showLoading) {
-      setIsLoading(true);
-      setFetchError(null);
-    } else {
-      setIsBackgroundFetching(true);
-    }
-    
-    const timestamp = new Date().toLocaleTimeString();
-    console.log(`[Queue: ${timestamp}] Fetching research items...`);
-    
+  // Fetch research results to know which items have available results
+  const fetchResearchResults = async () => {
     try {
-      // IMPORTANT: Explicit query matching the test screen - using in() with array of statuses
+      console.log('Fetching research results');
+      
+      const { data, error } = await supabase
+        .from('research_results_new')
+        .select('research_id')
+        .order('created_at', { ascending: false });
+      
+      if (error) {
+        throw new Error(`Error fetching research results: ${error.message}`);
+      }
+      
+      // Create a map of research_id -> true for quick lookup
+      const resultsMap: {[key: string]: boolean} = {};
+      data?.forEach(item => {
+        resultsMap[item.research_id] = true;
+      });
+      
+      setResearchResults(resultsMap);
+      
+    } catch (error) {
+      console.error('Error fetching research results:', error);
+    }
+  };
+  
+  // Fetch pending research items
+  const fetchResearchItems = async () => {
+    try {
+      // Only show loading indicator on initial load, not during polling
+      if (isLoading) {
+        setIsLoading(true);
+      } else {
+        setIsFetching(true);
+      }
+      
+      console.log(`Fetching all research items at ${new Date().toLocaleTimeString()}`);
+      
+      // REMOVE user_id filter to show ALL entries
       const { data, error } = await supabase
         .from('research_history_new')
         .select('*')
         .in('status', ['pending', 'researching', 'in_progress'])
         .order('created_at', { ascending: false });
       
-      // Handle supabase error
       if (error) {
-        const errorMsg = `Error fetching research items: ${error.message}`;
-        console.error(`[Queue: ${timestamp}] ${errorMsg}`);
-        setFetchError(errorMsg);
-        
-        if (showLoading) {
-          toast.error('Failed to load research queue');
-        }
-        return;
+        throw new Error(`Error fetching research items: ${error.message}`);
       }
       
-      // Log the raw response to debug
-      console.log(`[Queue: ${timestamp}] Raw response:`, data ? 'Data received' : 'No data');
-      console.log(`[Queue: ${timestamp}] Records count:`, data?.length || 0);
-      
-      if (data && data.length > 0) {
-        console.log(`[Queue: ${timestamp}] First record status:`, data[0].status);
-        console.log(`[Queue: ${timestamp}] First record:`, data[0]);
-      }
-      
-      // Update state with the fetched data
+      console.log(`Found ${data?.length || 0} active research items`);
       setResearchItems(data || []);
       setLastUpdate(new Date());
-      setFetchError(null);
       
     } catch (error) {
-      // Handle unexpected errors
-      const errorMsg = `Unexpected error: ${error}`;
-      console.error(`[Queue: ${timestamp}] ${errorMsg}`);
-      setFetchError(errorMsg);
-      
-      if (showLoading) {
-        toast.error('Failed to load research queue');
-      }
+      console.error('Error fetching research items:', error);
+      toast.error('Failed to load research queue');
     } finally {
-      // Reset loading states
-      if (showLoading) {
-        setIsLoading(false);
-      } else {
-        setIsBackgroundFetching(false);
-      }
+      setIsLoading(false);
+      setIsFetching(false);
     }
   };
   
@@ -303,8 +376,28 @@ export default function QueueScreen() {
       
       toast.success('Test data added successfully');
       
-      // Force an immediate fetch to show the new data
-      fetchResearchItems();
+      // After 5 seconds, add a test result
+      setTimeout(async () => {
+        try {
+          const resultId = `test-result-${Date.now()}`;
+          
+          const { error: resultError } = await supabase
+            .from('research_results_new')
+            .insert({
+              result_id: resultId,
+              research_id: researchId,
+              user_id: testUserId,
+              result: 'This is a test research result for testing the queue screen.',
+              created_at: new Date().toISOString()
+            });
+            
+          if (resultError) {
+            console.error('Error inserting test result:', resultError);
+          }
+        } catch (err) {
+          console.error('Error adding test result:', err);
+        }
+      }, 5000);
       
       // After 10 seconds, update the status to completed to test removal
       setTimeout(async () => {
@@ -319,9 +412,6 @@ export default function QueueScreen() {
           
           if (updateError) {
             console.error('Error updating test data status:', updateError);
-          } else {
-            // Force another fetch to show the removal
-            fetchResearchItems();
           }
         } catch (err) {
           console.error('Error updating test data:', err);
@@ -336,11 +426,11 @@ export default function QueueScreen() {
     }
   };
 
-  // Test navigation to test screen
-  const navigateToTestScreen = () => {
-    // @ts-ignore - Ignore the navigation type error
-    navigation.navigate('TestResearchQueue');
-  };
+  // Combine research items with results availability
+  const researchItemsWithResults = researchItems.map(item => ({
+    ...item,
+    has_results: researchResults[item.research_id] || false
+  }));
 
   return (
     <SafeAreaView style={styles.container}>
@@ -362,27 +452,18 @@ export default function QueueScreen() {
           Research Queue
         </Text>
         
-        {/* Test Button Options */}
-        <View style={styles.headerButtonsContainer}>
-          <TouchableOpacity 
-            style={styles.testDataButton}
-            onPress={addTestData}
-            disabled={isInsertingTestData}
-          >
-            {isInsertingTestData ? (
-              <ActivityIndicator size="small" color="#6c63ff" />
-            ) : (
-              <Text style={styles.testDataButtonText}>Add Test</Text>
-            )}
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={styles.testDataButton}
-            onPress={navigateToTestScreen}
-          >
-            <Text style={styles.testDataButtonText}>Test Screen</Text>
-          </TouchableOpacity>
-        </View>
+        {/* Test Data Button */}
+        <TouchableOpacity 
+          style={styles.testDataButton}
+          onPress={addTestData}
+          disabled={isInsertingTestData}
+        >
+          {isInsertingTestData ? (
+            <ActivityIndicator size="small" color="#6c63ff" />
+          ) : (
+            <Text style={styles.testDataButtonText}>Add Test Data</Text>
+          )}
+        </TouchableOpacity>
       </View>
       
       <ImageBackground 
@@ -397,14 +478,14 @@ export default function QueueScreen() {
           <MotiView
             from={{ opacity: 0, translateY: 20 }}
             animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'timing', duration: 500 }}
+            transition={{ type: 'spring', damping: 18, stiffness: 120 }}
           >
             <Text style={styles.screenTitle}>Active Research</Text>
             <Text style={styles.screenSubtitle}>
               Monitor your ongoing research tasks
             </Text>
             
-            {isLoading && (
+            {isFetching && (
               <View style={styles.updatingContainer}>
                 <ActivityIndicator size="small" color="#fff" />
                 <Text style={styles.updatingText}>Updating...</Text>
@@ -424,22 +505,7 @@ export default function QueueScreen() {
           style={styles.content}
           showsVerticalScrollIndicator={false}
         >
-          {/* Show error if present */}
-          {fetchError && (
-            <View style={styles.errorContainer}>
-              <MaterialIcons name="error-outline" size={24} color="#f87171" />
-              <Text style={styles.errorText}>Error: {fetchError}</Text>
-              <TouchableOpacity 
-                style={styles.retryButton}
-                onPress={() => fetchResearchItems(true)}
-              >
-                <Text style={styles.retryButtonText}>Retry</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        
-          {/* Show empty state if no items */}
-          {researchItems.length === 0 && !fetchError ? (
+          {researchItemsWithResults.length === 0 ? (
             <View style={styles.emptyStateContainer}>
               <MaterialCommunityIcons name="flask-empty-outline" size={60} color="#ccc" />
               <Text style={styles.emptyStateText}>No active research</Text>
@@ -447,7 +513,7 @@ export default function QueueScreen() {
             </View>
           ) : (
             <View style={styles.researchList}>
-              {researchItems.map((item, index) => (
+              {researchItemsWithResults.map((item, index) => (
                 <ResearchCard
                   key={item.research_id}
                   item={item}
@@ -461,7 +527,8 @@ export default function QueueScreen() {
           <MotiView
             from={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            transition={{ type: 'timing', duration: 500, delay: 300 }}
+            transition={{ type: 'spring', damping: 18, stiffness: 120 }}
+            delay={300}
           >
             <TouchableOpacity 
               style={styles.addButton}
@@ -486,9 +553,6 @@ export default function QueueScreen() {
             <Text style={styles.lastUpdateText}>
               Last updated: {lastUpdate.toLocaleTimeString()}
             </Text>
-            {isBackgroundFetching && (
-              <Text style={styles.updatingIndicatorText}>Updating...</Text>
-            )}
           </View>
         </ScrollView>
       )}
@@ -710,6 +774,21 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 14,
   },
+  waitingButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(108, 99, 255, 0.05)',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(108, 99, 255, 0.1)',
+  },
+  waitingButtonText: {
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontWeight: '500',
+    fontSize: 14,
+  },
   addButton: {
     borderRadius: 16,
     overflow: 'hidden',
@@ -742,44 +821,5 @@ const styles = StyleSheet.create({
   lastUpdateText: {
     fontSize: 12,
     color: 'rgba(255, 255, 255, 0.5)',
-  },
-  updatingIndicatorText: {
-    fontSize: 12,
-    color: 'rgba(108, 99, 255, 0.8)',
-    backgroundColor: 'rgba(108, 99, 255, 0.1)',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 12,
-  },
-  headerButtonsContainer: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  errorContainer: {
-    margin: 16,
-    padding: 16,
-    backgroundColor: 'rgba(254, 226, 226, 0.1)',
-    borderRadius: 8,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(248, 113, 113, 0.3)',
-  },
-  errorText: {
-    color: '#f87171',
-    marginTop: 8,
-    textAlign: 'center',
-  },
-  retryButton: {
-    marginTop: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: 'rgba(248, 113, 113, 0.2)',
-    borderRadius: 4,
-    borderWidth: 1,
-    borderColor: 'rgba(248, 113, 113, 0.4)',
-  },
-  retryButtonText: {
-    color: '#fff',
-    fontWeight: '600',
   },
 });

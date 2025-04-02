@@ -27,7 +27,7 @@ import FinancialAgentScreen from "./screens/FinancialAgentScreen";
 import PrivacySecurityScreen from "./screens/PrivacySecurityScreen";
 import TestN8nWebhook from "./TestN8nWebhook";
 import SimpleTestScreen from "./screens/SimpleTestScreen";
-import TestResearchQueueScreen from "./screens/TestResearchQueueScreen";
+import TestResearchResultScreen from "./screens/TestResearchResultScreen";
 import AppErrorBoundary from './components/AppErrorBoundary';
 import { ThemeProvider, useTheme, lightTheme } from './context/ThemeContext';
 import { ResearchProvider } from './context/ResearchContext';
@@ -37,6 +37,8 @@ import ResearchProgressScreen from "./screens/ResearchProgressScreen";
 import TestProgressScreen from "./screens/TestProgressScreen";
 import { useNavigation } from '@react-navigation/native';
 import SignupScreen from "./screens/SignupScreen";
+import TestActiveQueueScreen from "./screens/TestActiveQueueScreen";
+import SimpleQueueTestScreen from "./screens/SimpleQueueTestScreen";
 
 const Stack = createNativeStackNavigator();
 
@@ -106,7 +108,9 @@ function RootStack({ initialRouteName }: { initialRouteName: string }) {
       <Stack.Screen name="TestN8nWebhook" component={TestN8nWebhook} />
       <Stack.Screen name="TestProgressScreen" component={TestProgressScreen} />
       <Stack.Screen name="SimpleTest" component={SimpleTestScreen} />
-      <Stack.Screen name="TestResearchQueue" component={TestResearchQueueScreen} />
+      <Stack.Screen name="TestResearchResultScreen" component={TestResearchResultScreen} />
+      <Stack.Screen name="TestActiveQueueScreen" component={TestActiveQueueScreen} />
+      <Stack.Screen name="SimpleQueueTest" component={SimpleQueueTestScreen} />
     </Stack.Navigator>
   );
 }
@@ -116,7 +120,10 @@ function InitializationScreen({ onSelectTestScreen }: { onSelectTestScreen: (scr
   return (
     <SafeAreaProvider>
       <View style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>Initializing App...</Text>
+        <Text style={styles.loadingText}>Test Environment</Text>
+        <Text style={styles.instructionText}>
+          Select a test screen below to continue
+        </Text>
         
         {/* Test Buttons for Direct Access */}
         <View style={styles.testButtonsContainer}>
@@ -134,38 +141,49 @@ function InitializationScreen({ onSelectTestScreen }: { onSelectTestScreen: (scr
           </TouchableOpacity>
           <TouchableOpacity 
             style={styles.testButton}
-            onPress={() => onSelectTestScreen('TestResearchQueue')}
+            onPress={() => onSelectTestScreen('TestResearchResultScreen')}
           >
-            <Text style={styles.testButtonText}>Research Queue Test</Text>
+            <Text style={styles.testButtonText}>Research Result Test</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.testButton}
+            onPress={() => onSelectTestScreen('TestActiveQueueScreen')}
+          >
+            <Text style={styles.testButtonText}>Active Research Queue</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.testButton}
+            onPress={() => onSelectTestScreen('SimpleQueueTest')}
+          >
+            <Text style={styles.testButtonText}>Simple Queue Test</Text>
           </TouchableOpacity>
         </View>
+        
+        {/* Option to go to normal app */}
+        <TouchableOpacity 
+          style={[styles.testButton, styles.loginButton]}
+          onPress={() => onSelectTestScreen('Login')}
+        >
+          <Text style={styles.testButtonText}>Go to Login Screen</Text>
+        </TouchableOpacity>
       </View>
     </SafeAreaProvider>
   );
 }
 
 export default function App() {
-  // Simple state to track initialization
-  const [isInitialized, setIsInitialized] = React.useState(false);
-  const [initialRoute, setInitialRoute] = React.useState('Login');
+  // Simple state to track if a test screen was selected
+  const [selectedRoute, setSelectedRoute] = React.useState<string | null>(null);
   
-  React.useEffect(() => {
-    // Simple timeout to ensure components have time to mount
-    // This helps debug initialization issues
-    console.log("App initializing...");
-    
-    setTimeout(() => {
-      console.log("App initialized!");
-      setIsInitialized(true);
-    }, 500);
-  }, []);
+  // Function to handle test screen selection
+  const handleSelectTestScreen = (screen: string) => {
+    console.log(`Selected test screen: ${screen}`);
+    setSelectedRoute(screen);
+  };
 
-  // Show initialization screen first to catch early errors
-  if (!isInitialized) {
-    return <InitializationScreen onSelectTestScreen={(screen) => {
-      setInitialRoute(screen);
-      setIsInitialized(true);
-    }} />;
+  // Show initialization screen until user selects a test screen
+  if (selectedRoute === null) {
+    return <InitializationScreen onSelectTestScreen={handleSelectTestScreen} />;
   }
 
   return (
@@ -175,7 +193,7 @@ export default function App() {
           <ResearchProvider>
             <Toaster />
             <NavigationContainer>
-              <RootStack initialRouteName={initialRoute} />
+              <RootStack initialRouteName={selectedRoute} />
             </NavigationContainer>
           </ResearchProvider>
         </ThemeProvider>
@@ -194,10 +212,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#0f172a',
+    padding: 20,
   },
   loadingText: {
     color: 'white',
-    fontSize: 18,
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 10,
+  },
+  instructionText: {
+    color: '#94a3b8',
+    fontSize: 16,
+    marginBottom: 30,
+    textAlign: 'center',
   },
   errorContainer: {
     flex: 1,
@@ -230,15 +257,22 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   testButtonsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginTop: 20,
+    alignItems: 'stretch',
+    width: '100%',
+    maxWidth: 300,
+    marginBottom: 30,
   },
   testButton: {
     backgroundColor: '#6366f1',
-    paddingVertical: 12,
+    paddingVertical: 14,
     paddingHorizontal: 24,
     borderRadius: 8,
+    marginBottom: 12,
+    alignItems: 'center',
+  },
+  loginButton: {
+    backgroundColor: '#059669',
+    marginTop: 20,
   },
   testButtonText: {
     color: 'white',
