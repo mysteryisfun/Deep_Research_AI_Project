@@ -5,19 +5,13 @@ import {
   StyleSheet,
   TextInput,
   TouchableOpacity,
+  Alert,
   ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  Keyboard,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { StatusBar } from 'expo-status-bar';
-import { MaterialIcons } from '@expo/vector-icons';
-import { supabase } from '../context/supabase';
-import { useTheme } from '../context/ThemeContext';
+import { Ionicons } from '@expo/vector-icons';
+import { supabase } from '../utils/supabase';
 import { toast } from 'sonner-native';
 
 type RootStackParamList = {
@@ -28,279 +22,284 @@ type RootStackParamList = {
 
 type SignupScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Signup'>;
 
-export default function SignupScreen() {
+const SignupScreen = () => {
   const navigation = useNavigation<SignupScreenNavigationProp>();
-  const { theme } = useTheme();
-  const [loading, setLoading] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [errors, setErrors] = useState({
-    email: '',
-    password: '',
-    confirmPassword: '',
-  });
+  const [loading, setLoading] = useState(false);
+  const [passwordError, setPasswordError] = useState('');
+  const [emailError, setEmailError] = useState('');
 
-  const validateForm = () => {
-    const newErrors = {
-      email: '',
-      password: '',
-      confirmPassword: '',
-    };
-
-    // Email validation
-    if (!email) {
-      newErrors.email = 'Email is required';
-    } else if (!/\S+@\S+\.\S+/.test(email)) {
-      newErrors.email = 'Please enter a valid email';
+  const validatePassword = () => {
+    if (password !== confirmPassword) {
+      setPasswordError('Passwords do not match');
+      return false;
     }
-
-    // Password validation
-    if (!password) {
-      newErrors.password = 'Password is required';
-    } else if (password.length < 6) {
-      newErrors.password = 'Password must be at least 6 characters';
+    if (password.length < 6) {
+      setPasswordError('Password must be at least 6 characters long');
+      return false;
     }
-
-    // Confirm password validation
-    if (!confirmPassword) {
-      newErrors.confirmPassword = 'Please confirm your password';
-    } else if (password !== confirmPassword) {
-      newErrors.confirmPassword = 'Passwords do not match';
-    }
-
-    setErrors(newErrors);
-    return !Object.values(newErrors).some(error => error !== '');
+    setPasswordError('');
+    return true;
   };
 
-  const handleSignup = async () => {
-    if (!validateForm()) return;
+  const handleSignUp = async () => {
+    // Reset error states
+    setEmailError('');
+    setPasswordError('');
+
+    if (!email || !password || !confirmPassword) {
+      Alert.alert('Error', 'Please fill in all fields');
+      return;
+    }
+
+    if (!validatePassword()) {
+      return;
+    }
 
     try {
       setLoading(true);
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-      });
 
-      if (error) throw error;
+      // Check if email already exists in users table
+      const { data: existingUser } = await supabase
+        .from('users')
+        .select('email')
+        .eq('email', email.toLowerCase())
+        .single();
 
-      toast.success('Signup successful! Please check your email to verify your account.');
+      if (existingUser) {
+        setEmailError('Email already exists');
+        setLoading(false);
+        return;
+      }
+
+      // Generate a random UUID for the user
+      const userId = crypto.randomUUID();
+
+      // Insert into users table
+      const { error: userError } = await supabase
+        .from('users')
+        .insert({
+          id: userId,
+          email: email.toLowerCase(),
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+
+      if (userError) {
+        console.error('Error inserting user data:', userError);
+        throw userError;
+      }
+
+      // Create profile record
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .insert({
+          id: userId,
+          username: email.split('@')[0],
+          email: email.toLowerCase(),
+          avatar_url: null,
+          bio: '',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+
+      if (profileError) {
+        console.error('Profile creation error:', profileError);
+        throw profileError;
+      }
+
+      toast.success('Account created successfully!');
+      
+      // Navigate to Login screen
       navigation.navigate('Login');
     } catch (error: any) {
       console.error('Signup error:', error);
-      toast.error(error.message || 'Failed to sign up');
+      if (!emailError && !passwordError) {
+        Alert.alert(
+          'Error',
+          error.message || 'An error occurred during signup. Please try again.'
+        );
+      }
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      <StatusBar style={theme.statusBar === 'light' ? 'light' : 'dark'} />
-      
-      <KeyboardAvoidingView 
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.keyboardAvoid}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+    <View style={styles.container}>
+      <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
+        <Ionicons name="arrow-back" size={24} color="#fff" />
+      </TouchableOpacity>
+      <Text style={styles.title}>Register</Text>
+
+      <View style={styles.inputContainer}>
+        <Text style={styles.label}>Email *</Text>
+        <TextInput
+          style={[styles.input, emailError ? styles.inputError : null]}
+          placeholder="Enter your email"
+          placeholderTextColor="#666"
+          value={email}
+          onChangeText={(text) => {
+            setEmail(text);
+            setEmailError('');
+          }}
+          keyboardType="email-address"
+          autoCapitalize="none"
+          editable={!loading}
+        />
+        {emailError ? <Text style={styles.errorText}>{emailError}</Text> : null}
+      </View>
+
+      <View style={styles.inputContainer}>
+        <Text style={styles.label}>Password *</Text>
+        <TextInput
+          style={[styles.input, passwordError ? styles.inputError : null]}
+          placeholder="Your password"
+          placeholderTextColor="#666"
+          secureTextEntry
+          value={password}
+          onChangeText={(text) => {
+            setPassword(text);
+            setPasswordError('');
+          }}
+          editable={!loading}
+        />
+      </View>
+
+      <View style={styles.inputContainer}>
+        <Text style={styles.label}>Confirm Password *</Text>
+        <TextInput
+          style={[styles.input, passwordError ? styles.inputError : null]}
+          placeholder="Re-enter your password"
+          placeholderTextColor="#666"
+          secureTextEntry
+          value={confirmPassword}
+          onChangeText={(text) => {
+            setConfirmPassword(text);
+            setPasswordError('');
+          }}
+          editable={!loading}
+        />
+        {passwordError ? <Text style={styles.errorText}>{passwordError}</Text> : null}
+      </View>
+
+      <TouchableOpacity 
+        style={[styles.signupButton, loading && styles.disabledButton]} 
+        onPress={handleSignUp} 
+        disabled={loading}
       >
-        <View style={styles.header}>
-          <TouchableOpacity 
-            style={styles.backButton}
-            onPress={() => navigation.goBack()}
-          >
-            <MaterialIcons name="arrow-back" size={24} color={theme.text} />
-          </TouchableOpacity>
-          <Text style={[styles.title, { color: theme.text }]}>Create Account</Text>
-          <Text style={[styles.subtitle, { color: theme.secondaryText }]}>
-            Sign up to start your research journey
-          </Text>
-        </View>
+        {loading ? (
+          <ActivityIndicator color="#000" />
+        ) : (
+          <Text style={styles.signupButtonText}>Sign Up</Text>
+        )}
+      </TouchableOpacity>
 
-        <ScrollView 
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="always"
+      <Text style={styles.orText}>OR</Text>
+
+      <TouchableOpacity style={styles.socialButton}>
+        <Ionicons name="logo-google" size={20} color="#fff" />
+        <Text style={styles.socialButtonText}>Continue with Google</Text>
+      </TouchableOpacity>
+
+      <Text style={styles.footerText}>
+        Already have an account?{' '}
+        <Text
+          style={styles.loginText}
+          onPress={() => navigation.navigate('Login')}
         >
-          <View style={styles.form}>
-            <View style={styles.inputContainer}>
-              <Text style={[styles.label, { color: theme.text }]}>Email</Text>
-              <TextInput
-                style={[
-                  styles.input,
-                  { 
-                    backgroundColor: theme.card,
-                    color: theme.text,
-                    borderColor: errors.email ? '#ff3b30' : theme.border
-                  }
-                ]}
-                placeholder="Enter your email"
-                placeholderTextColor={theme.secondaryText}
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoComplete="email"
-              />
-              {errors.email ? (
-                <Text style={styles.errorText}>{errors.email}</Text>
-              ) : null}
-            </View>
-
-            <View style={styles.inputContainer}>
-              <Text style={[styles.label, { color: theme.text }]}>Password</Text>
-              <TextInput
-                style={[
-                  styles.input,
-                  { 
-                    backgroundColor: theme.card,
-                    color: theme.text,
-                    borderColor: errors.password ? '#ff3b30' : theme.border
-                  }
-                ]}
-                placeholder="Enter your password"
-                placeholderTextColor={theme.secondaryText}
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry
-                autoCapitalize="none"
-                autoComplete="password"
-              />
-              {errors.password ? (
-                <Text style={styles.errorText}>{errors.password}</Text>
-              ) : null}
-            </View>
-
-            <View style={styles.inputContainer}>
-              <Text style={[styles.label, { color: theme.text }]}>Confirm Password</Text>
-              <TextInput
-                style={[
-                  styles.input,
-                  { 
-                    backgroundColor: theme.card,
-                    color: theme.text,
-                    borderColor: errors.confirmPassword ? '#ff3b30' : theme.border
-                  }
-                ]}
-                placeholder="Confirm your password"
-                placeholderTextColor={theme.secondaryText}
-                value={confirmPassword}
-                onChangeText={setConfirmPassword}
-                secureTextEntry
-                autoCapitalize="none"
-                autoComplete="password"
-              />
-              {errors.confirmPassword ? (
-                <Text style={styles.errorText}>{errors.confirmPassword}</Text>
-              ) : null}
-            </View>
-
-            <TouchableOpacity
-              style={[
-                styles.signupButton,
-                { backgroundColor: theme.accent }
-              ]}
-              onPress={handleSignup}
-              disabled={loading}
-            >
-              {loading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={styles.signupButtonText}>Sign Up</Text>
-              )}
-            </TouchableOpacity>
-
-            <View style={styles.loginContainer}>
-              <Text style={[styles.loginText, { color: theme.secondaryText }]}>
-                Already have an account?
-              </Text>
-              <TouchableOpacity onPress={() => navigation.navigate('Login')}>
-                <Text style={[styles.loginLink, { color: theme.accent }]}>
-                  Log In
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+          Login
+        </Text>
+      </Text>
+    </View>
   );
-}
+};
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  keyboardAvoid: {
-    flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
-    paddingBottom: 40,
-  },
-  header: {
+    backgroundColor: '#000',
     padding: 20,
-    paddingTop: 40,
   },
   backButton: {
     marginBottom: 20,
   },
   title: {
-    fontSize: 32,
+    fontSize: 24,
     fontWeight: 'bold',
-    marginBottom: 8,
-  },
-  subtitle: {
-    fontSize: 16,
-    opacity: 0.8,
-  },
-  form: {
-    padding: 20,
+    color: '#fff',
+    marginBottom: 20,
   },
   inputContainer: {
     marginBottom: 20,
   },
   label: {
-    fontSize: 16,
+    fontSize: 14,
+    color: '#fff',
     marginBottom: 8,
-    fontWeight: '500',
   },
   input: {
-    height: 50,
-    borderWidth: 1,
+    backgroundColor: '#1c1c1e',
     borderRadius: 8,
-    paddingHorizontal: 16,
-    fontSize: 16,
-  },
-  errorText: {
-    color: '#ff3b30',
-    fontSize: 14,
-    marginTop: 4,
-  },
-  signupButton: {
-    height: 50,
-    borderRadius: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 20,
-  },
-  signupButtonText: {
+    padding: 12,
     color: '#fff',
     fontSize: 16,
-    fontWeight: '600',
   },
-  loginContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
+  inputError: {
+    borderColor: '#ff4444',
+    borderWidth: 1,
+  },
+  errorText: {
+    color: '#ff4444',
+    fontSize: 12,
+    marginTop: 5,
+  },
+  signupButton: {
+    backgroundColor: '#fff',
+    paddingVertical: 14,
+    borderRadius: 8,
     alignItems: 'center',
+    marginBottom: 15,
+  },
+  signupButtonText: {
+    color: '#000',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  disabledButton: {
+    opacity: 0.7,
+  },
+  orText: {
+    color: '#666',
+    textAlign: 'center',
+    marginVertical: 20,
+  },
+  socialButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1c1c1e',
+    paddingVertical: 14,
+    borderRadius: 8,
+    marginBottom: 10,
+    justifyContent: 'center',
+  },
+  socialButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    marginLeft: 10,
+  },
+  footerText: {
+    color: '#666',
+    fontSize: 14,
+    textAlign: 'center',
     marginTop: 20,
   },
   loginText: {
-    fontSize: 16,
-    marginRight: 4,
+    color: '#4caf50',
+    fontWeight: 'bold',
   },
-  loginLink: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-}); 
+});
+
+export default SignupScreen;

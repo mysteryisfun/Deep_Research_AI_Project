@@ -88,6 +88,7 @@ function RootStack({ initialRouteName }: { initialRouteName: string }) {
       <Stack.Screen name="Profile" component={ProfileScreen} />
       <Stack.Screen name="ChangePasswordScreen" component={ChangePasswordScreen} />
       <Stack.Screen name="PrivacySecurityScreen" component={PrivacySecurityScreen} />
+      <Stack.Screen name="SignupScreen" component={SignupScreen} />
       <Stack.Screen 
         name="LogoutScreen" 
         component={LogoutScreen}

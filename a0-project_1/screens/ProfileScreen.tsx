@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { 
   View, 
@@ -11,7 +11,9 @@ import {
   TextInput,
   Animated,
   Platform,
-  Linking
+  Linking,
+  ActivityIndicator,
+  Alert
 } from 'react-native';
 import { ThemeToggle } from '../components/ui/ThemeToggle';
 import { useNavigation } from '@react-navigation/native';
@@ -22,21 +24,32 @@ import { StatusBar } from 'expo-status-bar';
 import { MotiView } from 'moti';
 import { toast } from 'sonner-native';
 import * as ImagePicker from 'expo-image-picker';
+import { supabase } from '../utils/supabase';
+
+interface ProfileData {
+  username: string;
+  email: string;
+  bio: string;
+  avatarUrl: string | null;
+}
 
 export default function ProfileScreen() {
   const navigation = useNavigation();
   const { isDarkMode, theme, toggleTheme } = useTheme();  // Profile state
   const [isEditing, setIsEditing] = useState(false);
-  const [profileData, setProfileData] = useState({
-    fullName: "John Doe",
-    email: "john.doe@example.com",
-    bio: "AI Research Enthusiast"
+  const [loading, setLoading] = useState(false);
+  const [profileData, setProfileData] = useState<ProfileData>({
+    username: '',
+    email: '',
+    bio: '',
+    avatarUrl: null
   });
   
   // Editable values state
-  const [fullName, setFullName] = useState(profileData.fullName);
-  const [email, setEmail] = useState(profileData.email);
+  const [username, setUsername] = useState(profileData.username);
   const [bio, setBio] = useState(profileData.bio);
+  const [error, setError] = useState('');
+  const [userId, setUserId] = useState<string | null>(null);
   
   // Settings state
   const [pushNotifications, setPushNotifications] = useState(true);
@@ -49,43 +62,328 @@ export default function ProfileScreen() {
   const scrollY = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(1)).current;
   
-  // Handle profile image selection
-  const handleImagePick = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      toast.error('Permission required to access media library');
+  // Add state for email loading
+  const [emailLoading, setEmailLoading] = useState(true);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchUserProfile();
+    fetchUserEmail();
+  }, []);
+
+  const fetchUserProfile = async () => {
+    try {
+      setLoading(true);
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
+      
+      if (userError) {
+        console.error('User fetch error:', userError);
+        throw userError;
+      }
+
+      if (!user) {
+        console.log('No user found');
+        return;
+      }
+
+      setUserId(user.id);
+
+      // Fetch profile data
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+
+      if (profileError && profileError.code !== 'PGRST116') {
+        console.error('Profile fetch error:', profileError);
+        throw profileError;
+      }
+
+      // If profile doesn't exist, create it
+      if (!profile) {
+        const { error: createError } = await supabase
+          .from('profiles')
+          .insert({
+            id: user.id,
+            username: user.email?.split('@')[0] || '',
+            email: user.email,
+            avatar_url: null,
+            bio: ''
+          });
+
+        if (createError) {
+          console.error('Profile creation error:', createError);
+          throw createError;
+        }
+      }
+
+      const updatedProfileData = {
+        username: profile?.username || user.email?.split('@')[0] || '',
+        email: user.email || '',
+        bio: profile?.bio || '',
+        avatarUrl: profile?.avatar_url
+      };
+
+      setProfileData(updatedProfileData);
+      setUsername(updatedProfileData.username);
+      setBio(updatedProfileData.bio);
+
+    } catch (error: any) {
+      console.error('Error fetching profile:', error.message);
+      toast.error('Failed to load profile information');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchUserEmail = async () => {
+    try {
+      setEmailLoading(true);
+      // Get the current user session
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError) {
+        throw sessionError;
+      }
+
+      if (!session?.user) {
+        console.log('No user session found');
+        return;
+      }
+
+      // Fetch user data from the users table
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('email')
+        .eq('id', session.user.id)
+        .single();
+
+      if (userError) {
+        throw userError;
+      }
+
+      setUserEmail(userData?.email || null);
+    } catch (error: any) {
+      console.error('Error fetching email:', error.message);
+      toast.error('Failed to load email');
+    } finally {
+      setEmailLoading(false);
+    }
+  };
+
+  const pickImage = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        toast.error('Permission required to access media library');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0].uri) {
+        uploadImage(result.assets[0].uri);
+      }
+    } catch (error: any) {
+      console.error('Error picking image:', error);
+      toast.error('Failed to pick image');
+    }
+  };
+
+  const uploadImage = async (imageUri: string) => {
+    if (!userId) {
+      toast.error('No user session found');
       return;
     }
-    
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8,
-    });
-    
-    if (!result.canceled && result.assets[0].uri) {
-      setProfileImage(result.assets[0].uri);
-      toast.success('Profile picture updated');
+
+    setLoading(true);
+    try {
+      const fileExt = imageUri.split('.').pop();
+      const fileName = `${userId}-${Date.now()}.${fileExt}`;
+      const filePath = `avatars/${fileName}`;
+
+      // Convert image to blob
+      const response = await fetch(imageUri);
+      const blob = await response.blob();
+
+      // Upload to Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, blob, {
+          contentType: `image/${fileExt}`,
+          cacheControl: '3600',
+          upsert: true
+        });
+
+      if (uploadError) {
+        console.error('Upload error:', uploadError);
+        throw uploadError;
+      }
+
+      // Get Public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath);
+
+      // Update profile with new avatar_url
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({
+          avatar_url: publicUrl,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', userId);
+
+      if (updateError) {
+        console.error('Update error:', updateError);
+        throw updateError;
+      }
+
+      // Update local state
+      setProfileData(prev => ({
+        ...prev,
+        avatarUrl: publicUrl
+      }));
+
+      toast.success('Profile picture updated successfully');
+    } catch (error: any) {
+      console.error('Error uploading image:', error);
+      toast.error(error.message || 'Failed to upload profile picture');
+    } finally {
+      setLoading(false);
     }
-  };  // Handle saving profile changes
-  const handleSaveProfile = () => {
-    setProfileData({
-      fullName,
-      email,
-      bio
-    });
-    
-    setIsEditing(false);
-    toast.success('Profile updated successfully');
-  };  // Navigate to Change Password Screen
+  };
+
+  // Handle saving profile changes
+  const handleSaveProfile = async () => {
+    try {
+      setLoading(true);
+      setError('');
+
+      // Input validation
+      if (!username.trim()) {
+        setError('Username cannot be empty');
+        return;
+      }
+
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) throw sessionError;
+      if (!session?.user) {
+        toast.error('No user session found');
+        return;
+      }
+
+      // Get current user email
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('email')
+        .eq('id', session.user.id)
+        .single();
+
+      if (userError) {
+        console.error('Error fetching user email:', userError);
+        throw userError;
+      }
+
+      // Check if username is already taken (excluding current user)
+      const { data: existingUser, error: usernameCheckError } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('username', username)
+        .neq('id', session.user.id)
+        .single();
+
+      if (usernameCheckError && usernameCheckError.code !== 'PGRST116') {
+        throw usernameCheckError;
+      }
+
+      if (existingUser) {
+        setError('Username is already taken');
+        return;
+      }
+
+      // Start a batch update
+      console.log('Starting profile update...');
+
+      // Update profiles table first
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update({
+          username: username.trim(),
+          email: userData.email, // Ensure email is synced
+          bio: bio,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', session.user.id);
+
+      if (profileError) {
+        console.error('Profile update error:', profileError);
+        throw profileError;
+      }
+
+      console.log('Profile table updated successfully');
+
+      // Update users table
+      const { error: userUpdateError } = await supabase
+        .from('users')
+        .update({
+          username: username.trim(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', session.user.id);
+
+      if (userUpdateError) {
+        console.error('User update error:', userUpdateError);
+        throw userUpdateError;
+      }
+
+      console.log('Users table updated successfully');
+
+      // Update local state
+      setProfileData(prev => ({
+        ...prev,
+        username: username.trim(),
+        email: userData.email,
+        bio
+      }));
+      
+      setIsEditing(false);
+      toast.success('Profile updated successfully');
+
+    } catch (error: any) {
+      console.error('Error updating profile:', error);
+      setError(error.message || 'Failed to update profile');
+      toast.error(error.message || 'Failed to update profile');
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Navigate to Change Password Screen
   const navigateToChangePassword = () => {
     navigation.navigate('ChangePasswordScreen');
   };
   
   // Handle logout
-  const handleLogout = () => {
-    navigation.navigate('LogoutScreen');
+  const handleLogout = async () => {
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      
+      // Navigate to Login screen
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Login' }],
+      });
+    } catch (error: any) {
+      Alert.alert('Error', error.message);
+    }
   };
   
   // Animated header opacity
@@ -113,6 +411,14 @@ export default function ProfileScreen() {
       setIsEditing(true);
     });
   };
+
+  if (emailLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#4caf50" />
+      </View>
+    );
+  }
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
@@ -157,15 +463,27 @@ export default function ProfileScreen() {
           <View style={styles.profileImageSection}>
             <TouchableOpacity 
               style={styles.profileImageContainer}
-              onPress={handleImagePick}
+              onPress={pickImage}
+              disabled={loading}
             >
-              <Image
-                source={{ uri: profileImage }}
-                style={styles.profileImage}
-              />
-              <View style={styles.editImageButton}>
-                <MaterialIcons name="photo-camera" size={20} color="#fff" />
-              </View>
+              {loading ? (
+                <View style={[styles.profileImage, { backgroundColor: theme.inputBackground }]}>
+                  <ActivityIndicator size="large" color={theme.accent} />
+                </View>
+              ) : (
+                <>
+                  <Image
+                    source={{ 
+                      uri: profileData.avatarUrl || 
+                           "https://api.a0.dev/assets/image?text=minimal%20profile%20avatar%20professional&aspect=1:1&seed=123"
+                    }}
+                    style={styles.profileImage}
+                  />
+                  <View style={styles.editImageButton}>
+                    <MaterialIcons name="photo-camera" size={20} color="#fff" />
+                  </View>
+                </>
+              )}
             </TouchableOpacity>
           </View>
           
@@ -173,20 +491,22 @@ export default function ProfileScreen() {
             <View style={styles.editContainer}>
               <TextInput
                 style={[styles.editInput, { color: theme.text, backgroundColor: theme.inputBackground }]}
-                value={fullName}
-                onChangeText={setFullName}
-                placeholder="Full Name"
+                value={username}
+                onChangeText={setUsername}
+                placeholder="Username"
                 placeholderTextColor={theme.secondaryText}
-              />
-              <TextInput
-                style={[styles.editInput, { color: theme.text, backgroundColor: theme.inputBackground }]}
-                value={email}
-                onChangeText={setEmail}
-                placeholder="Email"
-                placeholderTextColor={theme.secondaryText}
-                keyboardType="email-address"
                 autoCapitalize="none"
               />
+              {error ? <Text style={styles.errorText}>{error}</Text> : null}
+              
+              <TextInput
+                style={[styles.editInput, { color: theme.text, backgroundColor: theme.inputBackground }]}
+                value={profileData.email}
+                editable={false}
+                placeholder="Email"
+                placeholderTextColor={theme.secondaryText}
+              />
+              
               <TextInput
                 style={[styles.editInput, { color: theme.text, backgroundColor: theme.inputBackground, minHeight: 80 }]}
                 value={bio}
@@ -201,11 +521,9 @@ export default function ProfileScreen() {
                 <TouchableOpacity 
                   style={[styles.editButton, styles.cancelButton, { borderColor: theme.border }]}
                   onPress={() => {
-                    // Reset to original values
-                    setFullName(profileData.fullName);
-                    setEmail(profileData.email);
-                    setPhoneNumber(profileData.phoneNumber);
+                    setUsername(profileData.username);
                     setBio(profileData.bio);
+                    setError('');
                     setIsEditing(false);
                   }}
                 >
@@ -214,21 +532,32 @@ export default function ProfileScreen() {
                 <TouchableOpacity 
                   style={styles.editButton}
                   onPress={handleSaveProfile}
+                  disabled={loading}
                 >
                   <LinearGradient
                     colors={theme.gradient}
                     style={styles.saveButtonGradient}
                   >
-                    <Text style={styles.saveButtonText}>Save Changes</Text>
+                    {loading ? (
+                      <ActivityIndicator color="#fff" size="small" />
+                    ) : (
+                      <Text style={styles.saveButtonText}>Save Changes</Text>
+                    )}
                   </LinearGradient>
                 </TouchableOpacity>
               </View>
             </View>
           ) : (
             <View style={styles.profileInfo}>
-              <Text style={[styles.userName, { color: theme.text }]}>{profileData.fullName}</Text>
-              <Text style={[styles.userEmail, { color: theme.secondaryText }]}>{profileData.email}</Text>
-              <Text style={[styles.userBio, { color: theme.secondaryText }]}>{profileData.bio}</Text>
+              <Text style={[styles.userName, { color: theme.text }]}>
+                {profileData.username || 'No username set'}
+              </Text>
+              <Text style={[styles.userEmail, { color: theme.secondaryText }]}>
+                {profileData.email || 'No email available'}
+              </Text>
+              <Text style={[styles.userBio, { color: theme.secondaryText }]}>
+                {profileData.bio || 'No bio added yet'}
+              </Text>
               
               <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
                 <TouchableOpacity 
@@ -682,5 +1011,21 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     marginLeft: 8,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#000',
+  },
+  emailLoader: {
+    marginVertical: 8,
+  },
+  errorText: {
+    color: '#ff4444',
+    fontSize: 12,
+    marginTop: -8,
+    marginBottom: 8,
+    marginLeft: 4
   },
 });

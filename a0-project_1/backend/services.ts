@@ -10,15 +10,9 @@ export const loginUser = async (email: string, password: string) => {
 };
 
 // Sign up a new user with email and password
-export const signUpUser = async (email: string, password: string, fullName: string) => {
+export const signUpUser = async (email: string, password: string) => {
   const { data, error } = await supabase.auth.signUp({ email, password });
   if (error) throw error;
-  // Optionally update user profile
-  const { error: updateError } = await supabase
-    .from("profiles")
-    .update({ full_name: fullName })
-    .eq("id", data.user?.id);
-  if (updateError) throw updateError;
   return data;
 };
 
