@@ -1,11 +1,11 @@
+import 'react-native-url-polyfill/auto';
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-// Replace @env import with hardcoded values
-// import { SUPABASE_URL, SUPABASE_KEY } from '@env';
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from '@env';
 
-// Hardcode the Supabase URL and key temporarily
-const SUPABASE_URL = 'https://wurrqztgdnecgtmsisrq.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind1cnJxenRnZG5lY2d0bXNpc3JxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDMyMjU5NTYsImV4cCI6MjA1ODgwMTk1Nn0.Cwke6VXDuTvQmaEgk-QKw_hwhQmrpNG_34l0gob_6NA';
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  throw new Error('Missing Supabase environment variables');
+}
 
 // Update the interface to specify research_id as a string
 export interface ResearchData {
@@ -23,13 +23,16 @@ export interface ResearchData {
 }
 
 // Create a Supabase client
-export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     storage: AsyncStorage,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,
   },
+  db: {
+    schema: 'public'
+  }
 });
 
 // Generate a unique research ID (client-side)
@@ -37,9 +40,25 @@ export function generateResearchId(): string {
   return `research-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 }
 
-// Generate a user ID (for testing or when auth is not available)
-export function generateUserId(): string {
-  return `user-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+// Update the generateUserId function to use AsyncStorage
+export async function generateUserId(): Promise<string> {
+  try {
+    // Try to get the user ID from AsyncStorage
+    const storedId = await AsyncStorage.getItem('research_app_user_id');
+    
+    if (storedId) {
+      console.log(`Using stored user ID: ${storedId}`);
+      return storedId;
+    }
+    
+    // If not found in AsyncStorage, generate a temporary one
+    console.log('No stored user ID found, generating temporary ID');
+    return `user-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+  } catch (error) {
+    console.error('Error retrieving user ID:', error);
+    // Fallback to generating a temporary ID
+    return `user-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+  }
 }
 
 // Updated function to work with the new tables schema
@@ -237,7 +256,7 @@ export async function storeResearchResult(resultData: {
 }
 
 // Function to generate IDs for various entities
-export function generateEntityId(type: 'question' | 'progress' | 'result' | 'question-batch'): string {
+export function generateEntityId(type: 'question' | 'progress' | 'result' | 'question-batch' | 'user'): string {
   return `${type}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 }
 

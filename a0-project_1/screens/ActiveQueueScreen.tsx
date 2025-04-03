@@ -15,7 +15,9 @@ import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { supabase } from '../context/supabase';
 import { useTheme } from '../context/ThemeContext';
+import { useUser } from '../context/UserContext';
 import { toast } from 'sonner-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Interface for research item from the database
 interface ResearchItem {
@@ -34,11 +36,13 @@ interface ResearchItem {
 const ActiveQueueScreen = () => {
   const navigation = useNavigation();
   const { theme } = useTheme();
+  const { userId: globalUserId } = useUser();
   const [activeResearches, setActiveResearches] = useState<ResearchItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
   const supabaseSubscriptionRef = useRef<any>(null);
+  const [userIdForQuery, setUserIdForQuery] = useState<string | null>(null);
   
   // Animation for the "Researching" indicator
   const pulseAnimation = useRef(new Animated.Value(1)).current;
@@ -66,6 +70,34 @@ const ActiveQueueScreen = () => {
       pulseAnimation.stopAnimation();
     };
   }, []);
+  
+  // Setup user ID from UserContext or AsyncStorage
+  useEffect(() => {
+    const setupUserId = async () => {
+      try {
+        // First try to use the global userId from UserContext
+        if (globalUserId) {
+          logDebug('INFO', 'setupUserId', `Using global userId from UserContext: ${globalUserId}`);
+          setUserIdForQuery(globalUserId);
+          return;
+        }
+        
+        // If not available, try to get from AsyncStorage
+        const storedUserId = await AsyncStorage.getItem('user_id');
+        if (storedUserId) {
+          logDebug('INFO', 'setupUserId', `Using stored userId from AsyncStorage: ${storedUserId}`);
+          setUserIdForQuery(storedUserId);
+          return;
+        }
+        
+        logDebug('WARN', 'setupUserId', 'No user ID found. Will show all researches.');
+      } catch (error) {
+        logDebug('ERROR', 'setupUserId', 'Error getting user ID', error);
+      }
+    };
+    
+    setupUserId();
+  }, [globalUserId]);
   
   // Helper function to check if a research item is pending
   const isPending = (status: string | null | undefined): boolean => {
@@ -114,18 +146,27 @@ const ActiveQueueScreen = () => {
     // Initial fetch
     fetchActiveResearches();
     
-    // Setup real-time subscription
-    logDebug('INFO', 'setupSubscription', 'Setting up real-time subscription for research_history_new table');
+    // Setup real-time subscription for the specific user if we have a userId
+    logDebug('INFO', 'setupSubscription', `Setting up real-time subscription for research_history_new table${userIdForQuery ? ' filtered by user_id' : ''}`);
+    
+    const filters = {
+      event: '*',
+      schema: 'public',
+      table: 'research_history_new',
+    };
+    
+    // Add user_id filter if available
+    if (userIdForQuery) {
+      Object.assign(filters, {
+        filter: `user_id=eq.${userIdForQuery}`,
+      });
+    }
     
     const channel = supabase
       .channel('active-researches')
       .on(
         'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'research_history_new',
-        },
+        filters,
         (payload) => {
           logDebug('INFO', 'realtimeSubscription', `Received event: ${payload.eventType}`, payload);
           
@@ -189,7 +230,7 @@ const ActiveQueueScreen = () => {
         supabase.removeChannel(supabaseSubscriptionRef.current);
       }
     };
-  }, []);
+  }, [userIdForQuery]);
   
   // Function to fetch active researches
   const fetchActiveResearches = async () => {
@@ -197,7 +238,7 @@ const ActiveQueueScreen = () => {
       setIsLoading(true);
       setError(null);
       
-      logDebug('INFO', 'fetchActiveResearches', 'Starting to fetch pending researches');
+      logDebug('INFO', 'fetchActiveResearches', `Starting to fetch pending researches${userIdForQuery ? ' for user: ' + userIdForQuery : ''}`);
       
       // First, try to get any research at all, to see if we can connect
       const { data: anyData, error: anyError } = await supabase
@@ -213,16 +254,23 @@ const ActiveQueueScreen = () => {
       
       logDebug('INFO', 'fetchActiveResearches', 'Database connection successful');
       
-      // Get all rows to see what's in the table
-      const { data: allData, error: allError } = await supabase
+      // Build query for researches
+      let query = supabase
         .from('research_history_new')
         .select('*')
         .order('created_at', { ascending: false });
+      
+      // Add user_id filter if available
+      if (userIdForQuery) {
+        query = query.eq('user_id', userIdForQuery);
+      }
+        
+      const { data: allData, error: allError } = await query;
         
       if (allError) {
         logDebug('ERROR', 'fetchActiveResearches', 'Failed to fetch all research items', allError);
       } else {
-        logDebug('INFO', 'fetchActiveResearches', `Fetched ${allData.length} total research items`);
+        logDebug('INFO', 'fetchActiveResearches', `Fetched ${allData.length} total research items${userIdForQuery ? ' for user: ' + userIdForQuery : ''}`);
         if (allData.length > 0) {
           logDebug('INFO', 'fetchActiveResearches', 'Sample research item:', allData[0]);
           
@@ -240,12 +288,21 @@ const ActiveQueueScreen = () => {
       }
       
       // Query specifically for "pending" status researches
-      logDebug('INFO', 'fetchActiveResearches', 'Querying specifically for status="pending"');
-      const { data, error } = await supabase
+      logDebug('INFO', 'fetchActiveResearches', `Querying specifically for status="pending"${userIdForQuery ? ' and user_id=' + userIdForQuery : ''}`);
+      
+      // Build query for pending researches
+      let pendingQuery = supabase
         .from('research_history_new')
         .select('*')
         .eq('status', 'pending')
         .order('created_at', { ascending: false });
+      
+      // Add user_id filter if available
+      if (userIdForQuery) {
+        pendingQuery = pendingQuery.eq('user_id', userIdForQuery);
+      }
+      
+      const { data, error } = await pendingQuery;
       
       if (error) {
         logDebug('ERROR', 'fetchActiveResearches', 'Failed to fetch pending researches', error);
@@ -253,20 +310,29 @@ const ActiveQueueScreen = () => {
         return;
       }
       
-      logDebug('INFO', 'fetchActiveResearches', `Fetched ${data.length} items with status="pending"`);
+      logDebug('INFO', 'fetchActiveResearches', `Fetched ${data.length} items with status="pending"${userIdForQuery ? ' for user: ' + userIdForQuery : ''}`);
       
       // Also try with status case insensitive query
-      logDebug('INFO', 'fetchActiveResearches', 'Trying case-insensitive query for status containing "pending"');
-      const { data: pendingCaseInsensitive, error: pendingCaseInsensitiveError } = await supabase
+      logDebug('INFO', 'fetchActiveResearches', `Trying case-insensitive query for status containing "pending"${userIdForQuery ? ' for user: ' + userIdForQuery : ''}`);
+      
+      // Build case-insensitive query
+      let pendingCaseInsensitiveQuery = supabase
         .from('research_history_new')
         .select('*')
         .ilike('status', '%pending%')
         .order('created_at', { ascending: false });
       
+      // Add user_id filter if available
+      if (userIdForQuery) {
+        pendingCaseInsensitiveQuery = pendingCaseInsensitiveQuery.eq('user_id', userIdForQuery);
+      }
+      
+      const { data: pendingCaseInsensitive, error: pendingCaseInsensitiveError } = await pendingCaseInsensitiveQuery;
+      
       if (pendingCaseInsensitiveError) {
         logDebug('ERROR', 'fetchActiveResearches', 'Failed with case-insensitive query', pendingCaseInsensitiveError);
       } else {
-        logDebug('INFO', 'fetchActiveResearches', `Found ${pendingCaseInsensitive.length} items with status containing 'pending' (case-insensitive)`);
+        logDebug('INFO', 'fetchActiveResearches', `Found ${pendingCaseInsensitive.length} items with status containing 'pending' (case-insensitive)${userIdForQuery ? ' for user: ' + userIdForQuery : ''}`);
       }
       
       // If no pending researches found with exact match, try alternative methods
@@ -275,8 +341,13 @@ const ActiveQueueScreen = () => {
         
         // Try with the isPending function
         if (allData && allData.length > 0) {
-          const pendingByFunction = allData.filter(item => isPending(item.status));
-          logDebug('INFO', 'fetchActiveResearches', `Found ${pendingByFunction.length} pending items using isPending() function`);
+          // Filter by both pending status and user ID if available
+          const pendingByFunction = allData.filter(item => 
+            isPending(item.status) && 
+            (!userIdForQuery || item.user_id === userIdForQuery)
+          );
+          
+          logDebug('INFO', 'fetchActiveResearches', `Found ${pendingByFunction.length} pending items using isPending() function${userIdForQuery ? ' for user: ' + userIdForQuery : ''}`);
           
           // If we found some with our function, use those
           if (pendingByFunction.length > 0) {
@@ -297,10 +368,11 @@ const ActiveQueueScreen = () => {
           // As a last resort, manually check for items without "completed" status
           const nonCompletedItems = allData.filter(item => {
             const status = (item.status || '').toLowerCase();
-            return !status.includes('complet') && !status.includes('done') && !status.includes('finish');
+            const isNotCompleted = !status.includes('complet') && !status.includes('done') && !status.includes('finish');
+            return isNotCompleted && (!userIdForQuery || item.user_id === userIdForQuery);
           });
           
-          logDebug('INFO', 'fetchActiveResearches', `Found ${nonCompletedItems.length} non-completed items as fallback`);
+          logDebug('INFO', 'fetchActiveResearches', `Found ${nonCompletedItems.length} non-completed items as fallback${userIdForQuery ? ' for user: ' + userIdForQuery : ''}`);
           
           if (nonCompletedItems.length > 0) {
             logDebug('INFO', 'fetchActiveResearches', 'Using non-completed items as fallback');
@@ -312,7 +384,7 @@ const ActiveQueueScreen = () => {
       }
       
       // If we got here, use the original query results
-      logDebug('INFO', 'fetchActiveResearches', `Setting ${data.length} pending researches from original query`);
+      logDebug('INFO', 'fetchActiveResearches', `Setting ${data.length} pending researches from original query${userIdForQuery ? ' for user: ' + userIdForQuery : ''}`);
       setActiveResearches(data as ResearchItem[]);
       setLastUpdated(new Date());
     } catch (err) {
@@ -437,24 +509,33 @@ const ActiveQueueScreen = () => {
         onPress={async () => {
           setIsLoading(true);
           try {
-            const { data, error } = await supabase
+            // Build query for non-completed research items
+            let query = supabase
               .from('research_history_new')
               .select('*')
               .not('status', 'in', '("completed","done","finished")')
               .order('created_at', { ascending: false });
+            
+            // Add user_id filter if available
+            if (userIdForQuery) {
+              query = query.eq('user_id', userIdForQuery);
+            }
+            
+            const { data, error } = await query;
             
             if (error) throw error;
             
             if (data && data.length > 0) {
               console.log('Debug - All pending research items:', data);
               console.log('Status values found:', data.map(item => item.status));
+              console.log('User IDs found:', [...new Set(data.map(item => item.user_id))]);
               
               // Only show pending items
               const pendingItems = data.filter(item => isPending(item.status));
               setActiveResearches(pendingItems as ResearchItem[]);
-              toast.info(`Debug: Showing ${pendingItems.length} pending research items`);
+              toast.info(`Debug: Showing ${pendingItems.length} pending research items${userIdForQuery ? ' for user: ' + userIdForQuery : ''}`);
             } else {
-              toast.error('No pending research data found in database');
+              toast.error(`No pending research data found${userIdForQuery ? ' for this user' : ' in database'}`);
             }
           } catch (err) {
             console.error('Debug fetch error:', err);
@@ -481,17 +562,30 @@ const ActiveQueueScreen = () => {
         >
           <Ionicons name="arrow-back" size={24} color={theme.text} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.text }]}>
-          Active Research Queue
-        </Text>
+        <View style={styles.headerTitleContainer}>
+          <Text style={[styles.headerTitle, { color: theme.text }]}>
+            Active Research Queue
+          </Text>
+          {userIdForQuery && (
+            <Text style={[styles.headerSubtitle, { color: theme.secondaryText }]}>
+              Showing only your research items
+            </Text>
+          )}
+        </View>
         <TouchableOpacity 
           style={styles.refreshButton}
           onPress={() => {
             setIsLoading(true);
+            toast.info(`Refreshing research queue${userIdForQuery ? ' for your account' : ''}`);
             fetchActiveResearches();
           }}
+          disabled={isLoading}
         >
-          <Ionicons name="refresh" size={24} color={theme.text} />
+          {isLoading ? (
+            <ActivityIndicator size="small" color={theme.accent} />
+          ) : (
+            <Ionicons name="refresh" size={24} color={theme.text} />
+          )}
         </TouchableOpacity>
       </View>
       
@@ -556,11 +650,22 @@ const styles = StyleSheet.create({
   backButton: {
     padding: 5,
   },
+  headerTitleContainer: {
+    flexDirection: 'column',
+    flex: 1,
+  },
   headerTitle: {
     flex: 1,
     marginLeft: 10,
     fontSize: 18,
     fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  headerSubtitle: {
+    flex: 1,
+    marginLeft: 10,
+    fontSize: 14,
+    fontStyle: 'italic',
     textAlign: 'center',
   },
   rightHeaderSpace: {

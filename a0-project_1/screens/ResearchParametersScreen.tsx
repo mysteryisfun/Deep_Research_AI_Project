@@ -9,6 +9,7 @@ import axios from 'axios';
 import { toast } from 'sonner-native';
 import sendResearchQuery from '../backend/services/sendResearchQuery';
 import { generateUserId } from '../utils/supabase';
+import { useUser } from '../context/UserContext';
 
 // n8n webhook URL - direct approach
 const WEBHOOK_URL = 'https://atomic123.app.n8n.cloud/webhook-test/055cedaa-a313-4625-a41c-7e7f9560b7a3';
@@ -102,20 +103,21 @@ export default function ResearchParametersScreen({ route }: ResearchScreenProps)
     }
   };
 
+  const { userId } = useUser();
+
   const handleSubmit = async () => {
     setIsLoading(true);
     
     try {
       console.log('[DEBUG] Starting research submission process');
       
-      // Generate user ID if not available through auth
-      // In production, you would get this from your auth system
-      const userId = generateUserId();
-      console.log('[DEBUG] Using user ID:', userId);
+      // Use the global userId if available, otherwise fall back to generating one
+      const userIdToUse = userId || await generateUserId();
+      console.log('[DEBUG] Using user ID:', userIdToUse);
       
       // Prepare the payload for the API call
       const payload = {
-        user_id: userId,
+        user_id: userIdToUse,
         agent: agentData.id,
         query,
         breadth,
@@ -278,11 +280,11 @@ export default function ResearchParametersScreen({ route }: ResearchScreenProps)
                         damping: 10,
                         stiffness: 100
                       }}
-                  >
-                    <Text style={[
-                      styles.sliderValueText,
-                      breadth >= value && styles.filledSliderValueText
-                    ]}>{value}</Text>
+                    >
+                      <Text style={[
+                        styles.sliderValueText,
+                        breadth >= value && styles.filledSliderValueText
+                      ]}>{value}</Text>
                     </MotiView>
                   </TouchableOpacity>
                 ))}
@@ -329,11 +331,11 @@ export default function ResearchParametersScreen({ route }: ResearchScreenProps)
                         damping: 10,
                         stiffness: 100
                       }}
-                  >
-                    <Text style={[
-                      styles.sliderValueText,
-                      depth >= value && styles.filledSliderValueText
-                    ]}>{value}</Text>
+                    >
+                      <Text style={[
+                        styles.sliderValueText,
+                        depth >= value && styles.filledSliderValueText
+                      ]}>{value}</Text>
                     </MotiView>
                   </TouchableOpacity>
                 ))}

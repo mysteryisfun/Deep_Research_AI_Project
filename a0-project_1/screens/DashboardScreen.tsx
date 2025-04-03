@@ -242,34 +242,7 @@ export default function DashboardScreen() {
             />
           </View>
         </View>
-        
-        {/* Recent Activity */}
-        <View style={styles.recentActivityContainer}>
-          <View style={styles.sectionTitleContainer}>
-            <Text style={styles.sectionTitle}>Recent Activity</Text>
-            <View style={styles.sectionDivider} />
-          </View>
-          
-          <ActivityCard
-            title="Molecular Analysis"
-            date="Today, 10:30 AM"
-            status="In Progress"
-            statusColor="#6c63ff"
-            icon={<MaterialIcons name="science" size={20} color="#6c63ff" />}
-            iconBgColor="rgba(108, 99, 255, 0.15)"
-            delay={100}
-          />
-          
-          <ActivityCard
-            title="Genome Mapping"
-            date="Yesterday, 2:45 PM"
-            status="Completed"
-            statusColor="#4bb543"
-            icon={<MaterialIcons name="check-circle" size={20} color="#4bb543" />}
-            iconBgColor="rgba(75, 181, 67, 0.15)"
-            delay={200}
-          />
-        </View>      </Animated.ScrollView>
+      </Animated.ScrollView>
     </SafeAreaView>
   );
 }

@@ -509,9 +509,6 @@ const ResearchProgressScreen = () => {
             <Text style={styles.progressText}>
               Progress: {isComplete ? '100' : Math.min(progress, 99)}%
             </Text>
-            <Text style={styles.topicsCountText}>
-              {topics.length} of ~{expectedTopics} topics
-            </Text>
           </View>
           
           <View style={styles.progressBarOuter}>
@@ -592,15 +589,6 @@ const ResearchProgressScreen = () => {
               isLastItem={index === topics.length - 1}
             />
           ))}
-          
-          {/* Estimated remaining topics */}
-          {!isComplete && topics.length < expectedTopics && (
-            <View style={styles.estimatedContainer}>
-              <Text style={styles.estimatedText}>
-                {expectedTopics - topics.length} more topics expected
-              </Text>
-            </View>
-          )}
         </ScrollView>
       )}
       

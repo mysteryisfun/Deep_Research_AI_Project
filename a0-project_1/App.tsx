@@ -3,7 +3,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StyleSheet, StatusBar as RNStatusBar, View, Text, TouchableOpacity } from 'react-native';
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { Toaster } from 'sonner-native';
-import React from 'react';
+import React, { useEffect } from 'react';
 import HomeScreen from "./screens/HomeScreen";
 import LoginScreen from "./screens/LoginScreen";
 import DashboardScreen from "./screens/DashboardScreen";
@@ -28,17 +28,35 @@ import PrivacySecurityScreen from "./screens/PrivacySecurityScreen";
 import TestN8nWebhook from "./TestN8nWebhook";
 import SimpleTestScreen from "./screens/SimpleTestScreen";
 import TestResearchResultScreen from "./screens/TestResearchResultScreen";
+import TestActiveQueueScreen from "./screens/TestActiveQueueScreen";
+import SimpleQueueTestScreen from "./screens/SimpleQueueTestScreen";
 import AppErrorBoundary from './components/AppErrorBoundary';
 import { ThemeProvider, useTheme, lightTheme } from './context/ThemeContext';
 import { ResearchProvider } from './context/ResearchContext';
 import { safelyAccessProperty } from './error-guard';
+import { handleGlobalError, errorHandler, ErrorCategory, ErrorSeverity } from './utils/errorHandler';
 import 'react-native-gesture-handler';
 import ResearchProgressScreen from "./screens/ResearchProgressScreen";
 import TestProgressScreen from "./screens/TestProgressScreen";
 import { useNavigation } from '@react-navigation/native';
 import SignupScreen from "./screens/SignupScreen";
-import TestActiveQueueScreen from "./screens/TestActiveQueueScreen";
-import SimpleQueueTestScreen from "./screens/SimpleQueueTestScreen";
+import DevControlScreen from "./screens/DevControlScreen";
+import DevPasswordScreen from "./screens/DevPasswordScreen";
+import { UserProvider } from './context/UserContext';
+// Import the user profile storage utility
+import { recordSessionStart } from './utils/userStorage';
+import { clearExpiredCache } from './utils/cacheManager';
+
+// Configure global error handling for unhandled JS errors
+if (!__DEV__) {
+  // Only in production to avoid interfering with dev tools
+  const globalErrorHandler = (error: Error, isFatal?: boolean) => {
+    handleGlobalError(error, 'Unhandled JS Exception');
+  };
+  
+  // Set up global error handler
+  ErrorUtils.setGlobalHandler(globalErrorHandler);
+}
 
 const Stack = createNativeStackNavigator();
 
@@ -103,6 +121,8 @@ function RootStack({ initialRouteName }: { initialRouteName: string }) {
       <Stack.Screen name="BusinessAgentScreen" component={BusinessAgentScreen} />
       <Stack.Screen name="HealthAgentScreen" component={HealthAgentScreen} />
       <Stack.Screen name="FinancialAgentScreen" component={FinancialAgentScreen} />
+      <Stack.Screen name="DevPasswordScreen" component={DevPasswordScreen} />
+      <Stack.Screen name="DevControlScreen" component={DevControlScreen} />
       
       {/* Test screens are still accessible but not in main flow */}
       <Stack.Screen name="TestN8nWebhook" component={TestN8nWebhook} />
@@ -157,6 +177,12 @@ function InitializationScreen({ onSelectTestScreen }: { onSelectTestScreen: (scr
           >
             <Text style={styles.testButtonText}>Simple Queue Test</Text>
           </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.testButton, { backgroundColor: '#6c63ff' }]}
+            onPress={() => onSelectTestScreen('DevPasswordScreen')}
+          >
+            <Text style={styles.testButtonText}>Developer Controls</Text>
+          </TouchableOpacity>
         </View>
         
         {/* Option to go to normal app */}
@@ -175,6 +201,51 @@ export default function App() {
   // Simple state to track if a test screen was selected
   const [selectedRoute, setSelectedRoute] = React.useState<string | null>(null);
   
+  // Handle uncaught promise rejections
+  useEffect(() => {
+    const rejectionTrackingListener = (event: any, promise: Promise<any>, reason: any) => {
+      errorHandler.captureError(
+        reason || new Error('Unhandled promise rejection'),
+        ErrorCategory.UNKNOWN,
+        ErrorSeverity.HIGH,
+        { source: 'unhandled_promise_rejection' }
+      );
+    };
+    
+    // Setup listeners
+    if (!__DEV__) {
+      const { addEventListener, removeEventListener } = global as any;
+      if (addEventListener && removeEventListener) {
+        addEventListener('unhandledrejection', rejectionTrackingListener);
+        
+        return () => {
+          removeEventListener('unhandledrejection', rejectionTrackingListener);
+        };
+      }
+    }
+  }, []);
+  
+  // Initialize user profile caching and record app session start
+  useEffect(() => {
+    const initializeProfile = async () => {
+      console.log('[App] Initializing user profile caching');
+      
+      try {
+        // Record app session start in usage stats
+        await recordSessionStart();
+        
+        // Clear expired cache items (older than 7 days)
+        await clearExpiredCache();
+        
+        console.log('[App] User profile initialization completed');
+      } catch (error) {
+        console.error('[App] Error initializing user profile:', error);
+      }
+    };
+    
+    initializeProfile();
+  }, []);
+  
   // Function to handle test screen selection
   const handleSelectTestScreen = (screen: string) => {
     console.log(`Selected test screen: ${screen}`);
@@ -190,12 +261,23 @@ export default function App() {
     <AppErrorBoundary>
       <SafeAreaProvider>
         <ThemeProvider>
-          <ResearchProvider>
-            <Toaster />
-            <NavigationContainer>
-              <RootStack initialRouteName={selectedRoute} />
-            </NavigationContainer>
-          </ResearchProvider>
+          <UserProvider>
+            <ResearchProvider>
+              <Toaster />
+              <NavigationContainer
+                onError={(error) => {
+                  errorHandler.captureError(
+                    error,
+                    ErrorCategory.UI,
+                    ErrorSeverity.MEDIUM,
+                    { source: 'navigation' }
+                  );
+                }}
+              >
+                <RootStack initialRouteName={selectedRoute} />
+              </NavigationContainer>
+            </ResearchProvider>
+          </UserProvider>
         </ThemeProvider>
       </SafeAreaProvider>
     </AppErrorBoundary>

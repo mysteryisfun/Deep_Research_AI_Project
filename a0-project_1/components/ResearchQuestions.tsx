@@ -7,9 +7,21 @@ import {
   StyleSheet, 
   ActivityIndicator,
   FlatList,
-  ScrollView
+  ScrollView,
+  Alert
 } from 'react-native';
-import { ResearchQuestion, fetchQuestions, submitAnswer, monitorQuestions, submitAllAnswers } from '../utils/questionsManager';
+import { supabase } from '../utils/supabase';
+
+interface ResearchQuestion {
+  question_id: string;
+  research_id: string;
+  user_id: string;
+  question: string;
+  answer?: string;
+  answered: boolean;
+  reply_webhook_url?: string;
+  created_at: string;
+}
 
 interface ResearchQuestionsProps {
   researchId: string;
@@ -24,7 +36,7 @@ const ResearchQuestions: React.FC<ResearchQuestionsProps> = ({
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState<boolean>(true);
   const [submitting, setSubmitting] = useState<boolean>(false);
-  const stopMonitoringRef = useRef<(() => void) | null>(null);
+  const supabaseSubscriptionRef = useRef<any>(null);
 
   // Load initial questions and set up monitoring
   useEffect(() => {
@@ -33,60 +45,131 @@ const ResearchQuestions: React.FC<ResearchQuestionsProps> = ({
     console.log('Starting questions component with research ID:', researchId);
     
     // Initial fetch of questions
-    const loadQuestions = async () => {
-      setLoading(true);
-      const fetchedQuestions = await fetchQuestions(researchId);
-      setQuestions(fetchedQuestions);
+    loadQuestions();
+    
+    // Set up real-time monitoring for questions
+    setupQuestionSubscription();
+    
+    // Clean up monitoring when component unmounts
+    return () => {
+      cleanupSubscription();
+    };
+  }, [researchId]);
+  
+  // Set up Supabase real-time subscription for questions
+  const setupQuestionSubscription = () => {
+    if (!researchId) return;
+    
+    // Create and subscribe to a channel for research_questions_array
+    const questionsChannel = supabase
+      .channel(`research_questions:${researchId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'research_questions_array',
+          filter: `research_id=eq.${researchId}`
+        },
+        (payload: any) => {
+          console.log('Question change received:', payload);
+          
+          // Handle different event types
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            // Refresh questions on insert or update
+            loadQuestions();
+          }
+        }
+      )
+      .subscribe();
+    
+    // Store subscription ref for cleanup
+    supabaseSubscriptionRef.current = questionsChannel;
+  };
+  
+  // Clean up Supabase subscription
+  const cleanupSubscription = () => {
+    if (supabaseSubscriptionRef.current) {
+      supabase.removeChannel(supabaseSubscriptionRef.current);
+      supabaseSubscriptionRef.current = null;
+    }
+  };
+  
+  // Load initial questions from Supabase
+  const loadQuestions = async () => {
+    setLoading(true);
+    
+    try {
+      console.log(`Fetching questions for research ID: ${researchId}`);
+      
+      // First, try to get questions from research_questions_array table
+      const { data: batchData, error: batchError } = await supabase
+        .from('research_questions_array')
+        .select('*')
+        .eq('research_id', researchId)
+        .maybeSingle();
+      
+      if (batchError && batchError.code !== 'PGRST116') {
+        console.error('Error fetching question batch:', batchError);
+        throw batchError;
+      }
+      
+      let questionsArray: ResearchQuestion[] = [];
+      
+      if (batchData && batchData.questions && Array.isArray(batchData.questions)) {
+        console.log(`Found batch with ${batchData.questions.length} questions`);
+        
+        // Format the questions from the batch
+        questionsArray = batchData.questions.map((q: any, index: number) => ({
+          question_id: q.id || `${batchData.question_id}-q${index + 1}`,
+          research_id: researchId,
+          user_id: batchData.user_id,
+          question: q.text || q.question,
+          answer: q.answer || null,
+          answered: !!q.answer,
+          created_at: batchData.created_at || new Date().toISOString()
+        }));
+      } else {
+        // Fallback to direct questions if no batch is found
+        const { data: directQuestions, error: directError } = await supabase
+          .from('research_questions')
+          .select('*')
+          .eq('research_id', researchId)
+          .order('created_at', { ascending: true });
+        
+        if (directError) {
+          console.error('Error fetching direct questions:', directError);
+          // Don't throw here, just log the error as we might not have this table
+        }
+        
+        if (directQuestions && directQuestions.length > 0) {
+          console.log(`Found ${directQuestions.length} direct questions`);
+          questionsArray = directQuestions;
+        }
+      }
+      
+      // Set the questions state
+      setQuestions(questionsArray);
       
       // Initialize answers state with any existing answers
       const initialAnswers: Record<string, string> = {};
-      fetchedQuestions.forEach(q => {
+      questionsArray.forEach(q => {
         if (q.answer) {
           initialAnswers[q.question_id] = q.answer;
         }
       });
       setAnswers(initialAnswers);
       
-      setLoading(false);
-      
       // Notify parent component if provided
       if (onQuestionsLoaded) {
-        onQuestionsLoaded(fetchedQuestions.length > 0);
+        onQuestionsLoaded(questionsArray.length > 0);
       }
-    };
-    
-    loadQuestions();
-    
-    // Set up monitoring for new questions
-    const stopMonitoring = monitorQuestions(researchId, (updatedQuestions) => {
-      setQuestions(updatedQuestions);
-      
-      // Update answers state with any new answers
-      setAnswers(prev => {
-        const newAnswers = { ...prev };
-        updatedQuestions.forEach(q => {
-          if (q.answer && !prev[q.question_id]) {
-            newAnswers[q.question_id] = q.answer;
-          }
-        });
-        return newAnswers;
-      });
-      
-      // Notify parent component about updates if provided
-      if (onQuestionsLoaded) {
-        onQuestionsLoaded(updatedQuestions.length > 0);
-      }
-    });
-    
-    stopMonitoringRef.current = stopMonitoring;
-    
-    // Clean up monitoring when component unmounts
-    return () => {
-      if (stopMonitoringRef.current) {
-        stopMonitoringRef.current();
-      }
-    };
-  }, [researchId]);
+    } catch (err) {
+      console.error('Error loading questions:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
   
   // Handle text input changes for answers
   const handleAnswerChange = (questionId: string, text: string) => {
@@ -108,15 +191,93 @@ const ResearchQuestions: React.FC<ResearchQuestionsProps> = ({
       console.log(`Submitting all answers for research ID: ${researchId}`);
       console.log(`Current answers object:`, JSON.stringify(answers));
       
-      // Convert combined question IDs to actual question IDs if needed
-      // This step is important because the ResearchQuestion objects have formatted IDs like "batch-id-q1"
-      // but to properly save answers we need to send both formats to the submitAllAnswers function
-      
-      const result = await submitAllAnswers(researchId, answers);
-      
-      if (result.success) {
-        console.log('Submit all answers succeeded');
+      // For each answer, insert or update in the database
+      const allSubmissions = Object.entries(answers).map(async ([questionId, answer]) => {
+        if (!answer || answer.trim() === '') return null;
         
+        // Find the corresponding question
+        const question = questions.find(q => q.question_id === questionId);
+        if (!question) return null;
+        
+        // Determine if we should update research_questions_array or direct questions
+        if (questionId.includes('-q')) {
+          // This is a batch question, update the batch
+          const batchId = questionId.split('-q')[0];
+          const questionIndex = parseInt(questionId.split('-q')[1]) - 1;
+          
+          // Get the current batch
+          const { data: currentBatch, error: getBatchError } = await supabase
+            .from('research_questions_array')
+            .select('*')
+            .eq('question_id', batchId)
+            .single();
+          
+          if (getBatchError) {
+            console.error('Error getting batch for update:', getBatchError);
+            throw getBatchError;
+          }
+          
+          if (currentBatch && currentBatch.questions) {
+            // Update the specific question in the batch
+            const updatedQuestions = [...currentBatch.questions];
+            if (updatedQuestions[questionIndex]) {
+              updatedQuestions[questionIndex].answer = answer;
+              
+              // Update the batch in the database
+              const { error: updateError } = await supabase
+                .from('research_questions_array')
+                .update({
+                  questions: updatedQuestions
+                })
+                .eq('question_id', batchId);
+              
+              if (updateError) {
+                console.error('Error updating batch questions:', updateError);
+                throw updateError;
+              }
+              
+              return {
+                question_id: questionId,
+                answer
+              };
+            }
+          }
+        } else {
+          // Direct question, update research_questions table if it exists
+          try {
+            const { error: updateError } = await supabase
+              .from('research_questions')
+              .update({
+                answer,
+                answered: true
+              })
+              .eq('question_id', questionId);
+            
+            if (updateError) {
+              console.error('Error updating direct question:', updateError);
+              // Don't throw here as the table might not exist
+            }
+            
+            return {
+              question_id: questionId,
+              answer
+            };
+          } catch (updateErr) {
+            console.error('Error in direct question update:', updateErr);
+            // Continue with the next question
+          }
+        }
+        
+        return null;
+      });
+      
+      // Wait for all submissions to complete
+      const results = await Promise.all(allSubmissions);
+      const successfulSubmissions = results.filter(Boolean);
+      
+      console.log(`Successfully submitted ${successfulSubmissions.length} answers`);
+      
+      if (successfulSubmissions.length > 0) {
         // Update the questions list with the new answers
         const updatedQuestions = questions.map(q => {
           const answer = answers[q.question_id];
@@ -140,7 +301,7 @@ const ResearchQuestions: React.FC<ResearchQuestionsProps> = ({
         
         console.log('All answers submitted successfully');
       } else {
-        console.error('Failed to submit answers:', result.error);
+        console.error('Failed to submit answers');
         // You could show an error message to the user here
       }
     } catch (error) {

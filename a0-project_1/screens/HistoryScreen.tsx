@@ -1,138 +1,94 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  TouchableOpacity, 
-  TextInput,
+import React, { useEffect, useState, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
   FlatList,
-  ActivityIndicator,
+  TouchableOpacity,
   Alert,
-  Platform,
-  RefreshControl
+  RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
+import { supabase } from '../utils/supabase';
 import { useNavigation } from '@react-navigation/native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { 
-  MaterialIcons, 
-  Ionicons
-} from '@expo/vector-icons';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { StatusBar } from 'expo-status-bar';
-import { MotiView } from 'moti';
-import { toast } from 'sonner-native';
-import { useResearch } from '../context/ResearchContext';
-import { supabase } from '../context/supabase';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
+import { useResearch } from '../context/ResearchContext';
+import { fetchResearchHistoryWithCache, clearResearchCache } from '../utils/researchService';
+import { useUser } from '../context/UserContext';
+import { useFocusEffect } from '@react-navigation/native';
 
-type RootStackParamList = {
-  LoginScreen: undefined;
-  HistoryScreen: undefined;
-  ResearchResultScreen: { researchId: string };
-  SeedDataScreen: undefined;
+// Define navigation prop type
+type NavigationProp = any;
+
+// Format date string to a more readable format
+const formatDate = (dateString: string) => {
+  const date = new Date(dateString);
+  return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
 };
 
-type NavigationProp = NativeStackNavigationProp<RootStackParamList>;
-
-// History Item component
-const HistoryItem: React.FC<{ item: any; onViewReport: (item: any) => void }> = ({ item, onViewReport }) => {
-  const getStatusColor = (status: string) => {
-    switch (status.toLowerCase()) {
-      case 'completed':
-        return ['#4CAF50', '#45a049'] as const;
-      case 'in_progress':
-        return ['#2196F3', '#1976D2'] as const;
-      case 'pending':
-        return ['#FFC107', '#FFA000'] as const;
-      default:
-        return ['#6c63ff', '#3a1c71'] as const;
-    }
-  };
-
-  const statusColors = getStatusColor(item.status);
-
-  return (
-    <TouchableOpacity 
-      style={styles.historyItem}
-      onPress={() => onViewReport(item)}
-    >
-      <View style={styles.historyHeader}>
-        <View style={styles.historyIconContainer}>
-          <MaterialIcons name="history" size={24} color={statusColors[0]} />
-        </View>
-        <View style={styles.historyHeaderRight}>
-          <View style={[styles.statusBadge, { backgroundColor: statusColors[0] }]}>
-            <Text style={styles.statusText}>{item.status}</Text>
-          </View>
-          <Text style={styles.dateText}>
-            {new Date(item.created_at).toLocaleDateString()}
-          </Text>
-        </View>
-      </View>
-
-      <View style={styles.historyContent}>
-        <Text style={styles.queryText} numberOfLines={2}>{item.query}</Text>
-        <View style={styles.detailsContainer}>
-          <Text style={styles.detailText}>Agent: {item.agent}</Text>
-          <Text style={styles.detailText}>Format: {item.output_format}</Text>
-        </View>
-      </View>
-
-      <View style={[styles.viewReportButton, { backgroundColor: statusColors[0] }]}>
-        <Text style={styles.viewReportText}>View Report</Text>
-        <MaterialIcons name="arrow-forward-ios" size={16} color="#fff" />
-      </View>
-    </TouchableOpacity>
-  );
+// Helper to get a color based on research status
+const getStatusColor = (status: string, theme: any) => {
+  switch (status?.toLowerCase()) {
+    case 'completed':
+      return 'green'; // Using direct color values instead of theme.colors
+    case 'pending':
+      return 'orange';
+    case 'failed':
+      return 'red';
+    default:
+      return theme.secondaryText; // Updated to use correct theme structure
+  }
 };
 
 export default function HistoryScreen() {
   const navigation = useNavigation<NavigationProp>();
   const [loading, setLoading] = useState(true);
+  const [backgroundRefreshing, setBackgroundRefreshing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
   const { setCurrentResearch } = useResearch();
   const { theme } = useTheme();
+  const { userId } = useUser();
 
-  // Fetch research history
+  // Fetch research history with caching
   useEffect(() => {
     console.log('HistoryScreen mounted');
     fetchHistory();
   }, []);
+  
+  // Refresh history data when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      console.log('HistoryScreen focused - checking for background refresh');
+      
+      if (userId) {
+        // Background refresh without loading indicator
+        backgroundRefresh();
+      }
+      
+      return () => {
+        // Optional cleanup if needed
+      };
+    }, [userId])
+  );
 
   const fetchHistory = async () => {
     try {
       console.log('Fetching history...');
       setLoading(true);
 
-      // Get current user
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-
-      if (userError) {
-        console.error('Error getting user:', userError);
-        Alert.alert('Error', 'Failed to get user information');
-        navigation.replace('LoginScreen');
+      if (!userId) {
+        console.error('No user ID found');
+        Alert.alert('Error', 'Not logged in');
+        navigation.replace('Login');
         return;
       }
 
-      if (!user) {
-        console.log('No user found, redirecting to login');
-        navigation.replace('LoginScreen');
-        return;
-      }
-
-      console.log('Fetching history for user:', user.id);
-
-      // Fetch research history for the current user
-      const { data, error } = await supabase
-        .from('research_history_new')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
+      console.log('Fetching cached history for user:', userId);
       
-      console.log('Fetch response:', { data, error });
-      
-      if (error) throw error;
+      // Use our cached fetch method
+      const data = await fetchResearchHistoryWithCache(userId);
       
       if (!data) {
         console.log('No data returned from query');
@@ -141,136 +97,277 @@ export default function HistoryScreen() {
       }
 
       console.log('History items:', data.length);
-      data.forEach((item, index) => {
-        console.log(`Item ${index + 1}:`, {
-          research_id: item.research_id,
-          query: item.query,
-          status: item.status
-        });
-      });
-
       setHistory(data);
-    } catch (error) {
-      console.error('Error fetching history:', error);
-      if (Platform.OS === 'web') {
-        console.error('Full error object:', JSON.stringify(error, null, 2));
-      }
-      Alert.alert('Error', 'Failed to load research history. Please check the console for details.');
+    } catch (error: any) {
+      console.error('Error fetching history:', error.message);
+      Alert.alert('Error', 'Failed to load research history');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   };
-
-  const handleViewReport = async (item: any) => {
+  
+  // Perform background refresh without showing full loading indicator
+  const backgroundRefresh = async () => {
+    if (backgroundRefreshing) return;
+    
     try {
-      console.log('Viewing report for research:', item.research_id);
-      
-      // Set current research in context
-      setCurrentResearch(item);
-      
-      // Navigate to result screen
-      navigation.navigate('ResearchResultScreen', { 
-        researchId: item.research_id 
-      });
+      setBackgroundRefreshing(true);
+      if (userId) {
+        // Fetch fresh data with background refresh option
+        const data = await fetchResearchHistoryWithCache(userId, { 
+          forceRefresh: true,
+          background: true 
+        });
+        
+        if (data) {
+          setHistory(data);
+          console.log('History refreshed in background successfully');
+        }
+      }
     } catch (error) {
-      console.error('Error viewing report:', error);
-      Alert.alert('Error', 'Failed to load research report');
+      console.error('Error in background refresh:', error);
+    } finally {
+      setBackgroundRefreshing(false);
     }
   };
 
-  const handleRefresh = () => {
-    setRefreshing(true);
-    fetchHistory();
+  // Force refresh data - bypasses cache
+  const handleRefresh = async () => {
+    try {
+      setRefreshing(true);
+      if (userId) {
+        // Clear the cache for this user
+        await clearResearchCache(userId);
+        
+        // Fetch fresh data with forceRefresh option
+        const data = await fetchResearchHistoryWithCache(userId, { 
+          forceRefresh: true,
+          background: false
+        });
+        
+        if (data) {
+          setHistory(data);
+          console.log('History refreshed successfully');
+        }
+      }
+    } catch (error) {
+      console.error('Error refreshing history:', error);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
-  const handleLogout = async () => {
-    try {
-      const { error } = await supabase.auth.signOut();
-      if (error) throw error;
-      navigation.replace('LoginScreen');
-    } catch (error) {
-      console.error('Error signing out:', error);
-      Alert.alert('Error', 'Failed to sign out');
+  const viewResearchDetails = (item: any) => {
+    console.log('Viewing research details:', item.research_id);
+    
+    // Save to context for global access if needed
+    setCurrentResearch({
+      researchId: item.research_id,
+      query: item.query,
+      agent: item.agent,
+      breadth: item.breadth || 3, // Default to 3 if not provided
+      depth: item.depth || 3,     // Default to 3 if not provided
+      status: item.status
+    });
+    
+    // Prepare common navigation params
+    const commonParams = {
+      research_id: item.research_id,
+      researchId: item.research_id, // Include both formats for compatibility
+      query: item.query,
+      breadth: item.breadth || 3,
+      depth: item.depth || 3,
+      agent: item.agent
+    };
+    
+    // Navigate to appropriate screen based on status
+    if (item.status?.toLowerCase() === 'completed') {
+      navigation.navigate('ResearchResultScreen', commonParams);
+    } else {
+      navigation.navigate('ResearchProgressScreen', commonParams);
     }
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <StatusBar style="light" />
-      
-      {/* Header */}
-      <View style={[styles.header, { backgroundColor: theme.card }]}>
-        <TouchableOpacity 
-          style={styles.backButton}
-          onPress={() => navigation.goBack()}
-        >
-          <Ionicons name="arrow-back" size={24} color={theme.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.text }]}>
-          Research History
-        </Text>
-      </View>
-
-      {/* Content */}
-      <View style={styles.content}>
-        {loading && !refreshing ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#6c63ff" />
-            <Text style={styles.loadingText}>Loading history...</Text>
+    <View style={[styles.container, { backgroundColor: theme.background }]}>
+      <View style={styles.header}>
+        <Text style={[styles.title, { color: theme.text }]}>Research History</Text>
+        {backgroundRefreshing && (
+          <View style={styles.backgroundRefreshIndicator}>
+            <ActivityIndicator size="small" color={theme.accent} />
           </View>
-        ) : history.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <MaterialIcons name="history" size={48} color="#666" />
-            <Text style={styles.emptyText}>No research history found</Text>
-          </View>
-        ) : (
-          <FlatList
-            data={history}
-            renderItem={({ item }) => (
-              <HistoryItem 
-                item={item} 
-                onViewReport={handleViewReport}
-              />
-            )}
-            keyExtractor={item => item.research_id}
-            contentContainerStyle={styles.listContainer}
-            refreshControl={
-              <RefreshControl
-                refreshing={refreshing}
-                onRefresh={handleRefresh}
-                tintColor="#6c63ff"
-              />
-            }
-            showsVerticalScrollIndicator={false}
-          />
         )}
       </View>
-    </SafeAreaView>
+
+      {loading && !refreshing ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={theme.accent} />
+          <Text style={[styles.loadingText, { color: theme.secondaryText }]}>
+            Loading history...
+          </Text>
+        </View>
+      ) : history.length === 0 ? (
+        <View style={styles.emptyContainer}>
+          <MaterialIcons name="history" size={50} color={theme.secondaryText} />
+          <Text style={[styles.emptyText, { color: theme.secondaryText }]}>
+            No research history found
+          </Text>
+          <Text style={[styles.emptySubtext, { color: theme.secondaryText }]}>
+            Start a new research to see it here
+          </Text>
+          <TouchableOpacity
+            style={[styles.newResearchButton, { backgroundColor: theme.accent }]}
+            onPress={() => navigation.navigate('Dashboard')}
+          >
+            <Text style={styles.newResearchButtonText}>Start New Research</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <FlatList
+          data={history}
+          keyExtractor={(item) => item.research_id}
+          contentContainerStyle={styles.list}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              colors={[theme.accent]}
+              tintColor={theme.accent}
+            />
+          }
+          renderItem={({ item }) => (
+            <TouchableOpacity
+              style={[styles.card, { backgroundColor: theme.card }]}
+              onPress={() => viewResearchDetails(item)}
+            >
+              <View style={styles.cardHeader}>
+                <Text 
+                  style={[styles.query, { color: theme.text }]} 
+                  numberOfLines={2}
+                >
+                  {item.query}
+                </Text>
+                <Text 
+                  style={[
+                    styles.status, 
+                    { color: getStatusColor(item.status, theme) }
+                  ]}
+                >
+                  {item.status || 'Unknown'}
+                </Text>
+              </View>
+
+              <View style={styles.cardDetails}>
+                <View style={styles.detailItem}>
+                  <MaterialIcons name="category" size={16} color={theme.secondaryText} />
+                  <Text style={[styles.detailText, { color: theme.secondaryText }]}>
+                    {item.agent || 'General Agent'}
+                  </Text>
+                </View>
+                <View style={styles.detailItem}>
+                  <MaterialIcons name="access-time" size={16} color={theme.secondaryText} />
+                  <Text style={[styles.detailText, { color: theme.secondaryText }]}>
+                    {formatDate(item.created_at)}
+                  </Text>
+                </View>
+              </View>
+            </TouchableOpacity>
+          )}
+        />
+      )}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0f172a',
   },
   header: {
+    paddingTop: 60,
+    paddingBottom: 20,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.1)',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+  },
+  backgroundRefreshIndicator: {
+    paddingRight: 10,
+  },
+  list: {
+    padding: 16,
+  },
+  card: {
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  query: {
+    fontSize: 16,
+    fontWeight: '600',
+    flex: 1,
+    paddingRight: 8,
+  },
+  status: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  cardDetails: {
+    marginTop: 8,
+  },
+  detailItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1e293b',
+    marginBottom: 4,
   },
-  backButton: {
-    marginRight: 16,
+  detailText: {
+    fontSize: 14,
+    marginLeft: 6,
   },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-  },
-  content: {
+  emptyContainer: {
     flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  emptyText: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginTop: 16,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    textAlign: 'center',
+    marginTop: 8,
+    marginBottom: 24,
+  },
+  newResearchButton: {
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  newResearchButtonText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 16,
   },
   loadingContainer: {
     flex: 1,
@@ -278,89 +375,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   loadingText: {
-    marginTop: 16,
+    marginTop: 12,
     fontSize: 16,
-    color: '#666',
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  emptyText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: '#666',
-  },
-  listContainer: {
-    padding: 16,
-  },
-  historyItem: {
-    backgroundColor: '#1E293B',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 16,
-  },
-  historyHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  historyIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(108, 99, 255, 0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  historyHeaderRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginRight: 8,
-  },
-  statusText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  dateText: {
-    color: '#666',
-    fontSize: 12,
-  },
-  historyContent: {
-    marginBottom: 12,
-  },
-  queryText: {
-    fontSize: 16,
-    color: '#fff',
-    marginBottom: 8,
-  },
-  detailsContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  detailText: {
-    color: '#666',
-    fontSize: 14,
-  },
-  viewReportButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 12,
-    borderRadius: 8,
-  },
-  viewReportText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-    marginRight: 4,
   },
 });

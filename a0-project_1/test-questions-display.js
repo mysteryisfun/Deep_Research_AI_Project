@@ -1,5 +1,6 @@
 const { createClient } = require('@supabase/supabase-js');
 const fetch = require('node-fetch');
+const AsyncStorage = require('@react-native-async-storage/async-storage').default;
 
 // Initialize Supabase client with the same credentials used in the app
 const supabaseUrl = 'https://wurrqztgdnecgtmsisrq.supabase.co';
@@ -15,9 +16,24 @@ function generateId(prefix) {
 async function runTest() {
   console.log('========== QUESTION DISPLAY TEST ==========');
   
-  // Generate IDs for testing
+  // Generate research ID for testing
   const researchId = generateId('research');
-  const userId = generateId('user');
+  
+  // Try to get stored user ID from AsyncStorage or generate a new one
+  let userId;
+  try {
+    userId = await AsyncStorage.getItem('user_id');
+    if (userId) {
+      console.log(`Using stored user ID from AsyncStorage: ${userId}`);
+    } else {
+      userId = generateId('user');
+      console.log(`No stored user ID found. Generated temporary user ID: ${userId}`);
+    }
+  } catch (error) {
+    console.error('Error accessing AsyncStorage:', error);
+    userId = generateId('user');
+    console.log(`Error accessing AsyncStorage. Generated temporary user ID: ${userId}`);
+  }
   
   console.log(`Research ID: ${researchId}`);
   console.log(`User ID: ${userId}`);

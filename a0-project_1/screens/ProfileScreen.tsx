@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { 
   View, 
@@ -11,7 +11,10 @@ import {
   TextInput,
   Animated,
   Platform,
-  Linking
+  Linking,
+  ActivityIndicator,
+  Alert,
+  RefreshControl
 } from 'react-native';
 import { ThemeToggle } from '../components/ui/ThemeToggle';
 import { useNavigation } from '@react-navigation/native';
@@ -22,21 +25,33 @@ import { StatusBar } from 'expo-status-bar';
 import { MotiView } from 'moti';
 import { toast } from 'sonner-native';
 import * as ImagePicker from 'expo-image-picker';
+import { supabase } from '../utils/supabase';
+import { 
+  fetchUserProfileWithCache, 
+  fetchUserEmailWithCache, 
+  updateUserProfile, 
+  clearProfileCache,
+  logoutAndClearCache,
+  ProfileData
+} from '../utils/profileService';
 
 export default function ProfileScreen() {
   const navigation = useNavigation();
   const { isDarkMode, theme, toggleTheme } = useTheme();  // Profile state
   const [isEditing, setIsEditing] = useState(false);
-  const [profileData, setProfileData] = useState({
-    fullName: "John Doe",
-    email: "john.doe@example.com",
-    bio: "AI Research Enthusiast"
+  const [loading, setLoading] = useState(false);
+  const [profileData, setProfileData] = useState<ProfileData>({
+    username: '',
+    email: '',
+    bio: '',
+    avatarUrl: null
   });
   
   // Editable values state
-  const [fullName, setFullName] = useState(profileData.fullName);
-  const [email, setEmail] = useState(profileData.email);
+  const [username, setUsername] = useState(profileData.username);
   const [bio, setBio] = useState(profileData.bio);
+  const [error, setError] = useState('');
+  const [userId, setUserId] = useState<string | null>(null);
   
   // Settings state
   const [pushNotifications, setPushNotifications] = useState(true);
@@ -49,43 +64,217 @@ export default function ProfileScreen() {
   const scrollY = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(1)).current;
   
-  // Handle profile image selection
-  const handleImagePick = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      toast.error('Permission required to access media library');
+  // Add state for email loading
+  const [emailLoading, setEmailLoading] = useState(true);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
+  
+  // Add refreshing state
+  const [refreshing, setRefreshing] = useState(false);
+  
+  useEffect(() => {
+    fetchUserProfile();
+    fetchUserEmail();
+  }, []);
+
+  const fetchUserProfile = async () => {
+    try {
+      setLoading(true);
+      
+      // Use cached profile data
+      const profile = await fetchUserProfileWithCache();
+      
+      if (!profile) {
+        console.log('No profile found');
+        return;
+      }
+
+      // Extract user ID from profile data
+      setUserId(profile.id || null);
+
+      // Update local state with profile data
+      setProfileData(profile);
+      setUsername(profile.username);
+      setBio(profile.bio);
+      
+      // Set profile image if available
+      if (profile.avatarUrl) {
+        setProfileImage(profile.avatarUrl);
+      }
+    } catch (error: any) {
+      console.error('Error fetching profile:', error.message);
+      toast.error('Failed to load profile information');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchUserEmail = async () => {
+    try {
+      setEmailLoading(true);
+      
+      // Use cached email
+      const email = await fetchUserEmailWithCache();
+      setUserEmail(email);
+    } catch (error: any) {
+      console.error('Error fetching email:', error.message);
+      toast.error('Failed to load email');
+    } finally {
+      setEmailLoading(false);
+    }
+  };
+
+  const pickImage = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        toast.error('Permission required to access media library');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0].uri) {
+        uploadImage(result.assets[0].uri);
+      }
+    } catch (error: any) {
+      console.error('Error picking image:', error);
+      toast.error('Failed to pick image');
+    }
+  };
+
+  const uploadImage = async (imageUri: string) => {
+    if (!userId) {
+      toast.error('No user session found');
       return;
     }
-    
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.8,
-    });
-    
-    if (!result.canceled && result.assets[0].uri) {
-      setProfileImage(result.assets[0].uri);
-      toast.success('Profile picture updated');
+
+    setLoading(true);
+    try {
+      const fileExt = imageUri.split('.').pop();
+      const fileName = `${userId}-${Date.now()}.${fileExt}`;
+      const filePath = `avatars/${fileName}`;
+
+      // Convert image to blob
+      const response = await fetch(imageUri);
+      const blob = await response.blob();
+
+      // Upload to Supabase Storage
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, blob, {
+          contentType: `image/${fileExt}`,
+          cacheControl: '3600',
+          upsert: true
+        });
+
+      if (uploadError) {
+        console.error('Upload error:', uploadError);
+        throw uploadError;
+      }
+
+      // Get Public URL
+      const { data: { publicUrl } } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath);
+
+      // Update profile with new avatar URL using the profile service
+      const success = await updateUserProfile({
+        avatarUrl: publicUrl
+      });
+
+      if (!success) {
+        throw new Error('Failed to update profile with new avatar');
+      }
+
+      // Update local state
+      setProfileData(prev => ({
+        ...prev,
+        avatarUrl: publicUrl
+      }));
+      
+      setProfileImage(publicUrl);
+      
+      toast.success('Profile picture updated successfully');
+    } catch (error: any) {
+      console.error('Error uploading image:', error);
+      toast.error('Failed to update profile picture');
+    } finally {
+      setLoading(false);
     }
-  };  // Handle saving profile changes
-  const handleSaveProfile = () => {
-    setProfileData({
-      fullName,
-      email,
-      bio
-    });
-    
-    setIsEditing(false);
-    toast.success('Profile updated successfully');
-  };  // Navigate to Change Password Screen
+  };
+
+  const handleSaveProfile = async () => {
+    if (!userId) {
+      toast.error('No user session found');
+      return;
+    }
+
+    if (username.trim().length < 3) {
+      setError('Username must be at least 3 characters long');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // Update profile using the profile service
+      const success = await updateUserProfile({
+        username,
+        bio
+      });
+
+      if (!success) {
+        throw new Error('Failed to update profile');
+      }
+
+      // Update local state
+      setProfileData(prev => ({
+        ...prev,
+        username,
+        bio
+      }));
+      
+      setIsEditing(false);
+      toast.success('Profile updated successfully');
+    } catch (error: any) {
+      console.error('Error saving profile:', error);
+      toast.error('Failed to update profile');
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Navigate to Change Password Screen
   const navigateToChangePassword = () => {
     navigation.navigate('ChangePasswordScreen');
   };
   
   // Handle logout
-  const handleLogout = () => {
-    navigation.navigate('LogoutScreen');
+  const handleLogout = async () => {
+    try {
+      setLoading(true);
+      
+      // Use the profileService to handle logout and cache clearing
+      const success = await logoutAndClearCache();
+      
+      if (!success) {
+        throw new Error('Failed to sign out');
+      }
+      
+      toast.success('Signed out successfully');
+      
+      // Navigate to sign in screen
+      navigation.navigate('SignInScreen' as never);
+    } catch (error: any) {
+      console.error('Error logging out:', error);
+      toast.error('Failed to sign out. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
   
   // Animated header opacity
@@ -114,6 +303,39 @@ export default function ProfileScreen() {
     });
   };
 
+  // Handle manual refresh
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    
+    try {
+      // Clear profile cache to force fresh data
+      if (userId) {
+        await clearProfileCache(userId);
+      }
+      
+      // Fetch fresh profile data and email
+      await Promise.all([
+        fetchUserProfile(),
+        fetchUserEmail()
+      ]);
+      
+      toast.success('Profile refreshed');
+    } catch (error) {
+      console.error('Error refreshing profile:', error);
+      toast.error('Failed to refresh profile');
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  if (emailLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#4caf50" />
+      </View>
+    );
+  }
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <StatusBar style={isDarkMode ? "light" : "dark"} />
@@ -138,14 +360,23 @@ export default function ProfileScreen() {
         <View style={styles.headerRight} />
       </Animated.View>
       
-      <ScrollView
+      <ScrollView 
         style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        scrollEventThrottle={16}
         onScroll={Animated.event(
           [{ nativeEvent: { contentOffset: { y: scrollY } } }],
           { useNativeDriver: false }
         )}
-        scrollEventThrottle={16}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            colors={['#6c63ff']}
+            tintColor={isDarkMode ? '#6c63ff' : '#3f51b5'}
+          />
+        }
       >
         {/* Profile Section */}
         <MotiView
@@ -157,15 +388,27 @@ export default function ProfileScreen() {
           <View style={styles.profileImageSection}>
             <TouchableOpacity 
               style={styles.profileImageContainer}
-              onPress={handleImagePick}
+              onPress={pickImage}
+              disabled={loading}
             >
-              <Image
-                source={{ uri: profileImage }}
-                style={styles.profileImage}
-              />
-              <View style={styles.editImageButton}>
-                <MaterialIcons name="photo-camera" size={20} color="#fff" />
-              </View>
+              {loading ? (
+                <View style={[styles.profileImage, { backgroundColor: theme.inputBackground }]}>
+                  <ActivityIndicator size="large" color={theme.accent} />
+                </View>
+              ) : (
+                <>
+                  <Image
+                    source={{ 
+                      uri: profileData.avatarUrl || 
+                           "https://api.a0.dev/assets/image?text=minimal%20profile%20avatar%20professional&aspect=1:1&seed=123"
+                    }}
+                    style={styles.profileImage}
+                  />
+                  <View style={styles.editImageButton}>
+                    <MaterialIcons name="photo-camera" size={20} color="#fff" />
+                  </View>
+                </>
+              )}
             </TouchableOpacity>
           </View>
           
@@ -173,20 +416,22 @@ export default function ProfileScreen() {
             <View style={styles.editContainer}>
               <TextInput
                 style={[styles.editInput, { color: theme.text, backgroundColor: theme.inputBackground }]}
-                value={fullName}
-                onChangeText={setFullName}
-                placeholder="Full Name"
+                value={username}
+                onChangeText={setUsername}
+                placeholder="Username"
                 placeholderTextColor={theme.secondaryText}
-              />
-              <TextInput
-                style={[styles.editInput, { color: theme.text, backgroundColor: theme.inputBackground }]}
-                value={email}
-                onChangeText={setEmail}
-                placeholder="Email"
-                placeholderTextColor={theme.secondaryText}
-                keyboardType="email-address"
                 autoCapitalize="none"
               />
+              {error ? <Text style={styles.errorText}>{error}</Text> : null}
+              
+              <TextInput
+                style={[styles.editInput, { color: theme.text, backgroundColor: theme.inputBackground }]}
+                value={profileData.email}
+                editable={false}
+                placeholder="Email"
+                placeholderTextColor={theme.secondaryText}
+              />
+              
               <TextInput
                 style={[styles.editInput, { color: theme.text, backgroundColor: theme.inputBackground, minHeight: 80 }]}
                 value={bio}
@@ -201,11 +446,9 @@ export default function ProfileScreen() {
                 <TouchableOpacity 
                   style={[styles.editButton, styles.cancelButton, { borderColor: theme.border }]}
                   onPress={() => {
-                    // Reset to original values
-                    setFullName(profileData.fullName);
-                    setEmail(profileData.email);
-                    setPhoneNumber(profileData.phoneNumber);
+                    setUsername(profileData.username);
                     setBio(profileData.bio);
+                    setError('');
                     setIsEditing(false);
                   }}
                 >
@@ -214,21 +457,32 @@ export default function ProfileScreen() {
                 <TouchableOpacity 
                   style={styles.editButton}
                   onPress={handleSaveProfile}
+                  disabled={loading}
                 >
                   <LinearGradient
                     colors={theme.gradient}
                     style={styles.saveButtonGradient}
                   >
-                    <Text style={styles.saveButtonText}>Save Changes</Text>
+                    {loading ? (
+                      <ActivityIndicator color="#fff" size="small" />
+                    ) : (
+                      <Text style={styles.saveButtonText}>Save Changes</Text>
+                    )}
                   </LinearGradient>
                 </TouchableOpacity>
               </View>
             </View>
           ) : (
             <View style={styles.profileInfo}>
-              <Text style={[styles.userName, { color: theme.text }]}>{profileData.fullName}</Text>
-              <Text style={[styles.userEmail, { color: theme.secondaryText }]}>{profileData.email}</Text>
-              <Text style={[styles.userBio, { color: theme.secondaryText }]}>{profileData.bio}</Text>
+              <Text style={[styles.userName, { color: theme.text }]}>
+                {profileData.username || 'No username set'}
+              </Text>
+              <Text style={[styles.userEmail, { color: theme.secondaryText }]}>
+                {profileData.email || 'No email available'}
+              </Text>
+              <Text style={[styles.userBio, { color: theme.secondaryText }]}>
+                {profileData.bio || 'No bio added yet'}
+              </Text>
               
               <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
                 <TouchableOpacity 
@@ -353,6 +607,22 @@ export default function ProfileScreen() {
             </View>
             <Text style={[styles.supportText, { color: theme.text }]}>Terms of Service</Text>
             <MaterialIcons name="chevron-right" size={22} color={theme.secondaryText} />
+          </TouchableOpacity>
+          
+          {/* Developer Mode Button - Hidden by default */}
+          <TouchableOpacity 
+            style={[styles.supportRow, { marginTop: 20, borderTopWidth: 1, borderTopColor: theme.border }]}
+            onPress={() => navigation.navigate('DevPasswordScreen')}
+          >
+            <View style={styles.supportIconContainer}>
+              <MaterialIcons name="code" size={22} color={theme.accent} />
+            </View>
+            <Text style={[styles.supportText, { color: theme.text }]}>Dev Page</Text>
+            <MaterialIcons 
+              name="chevron-right" 
+              size={22} 
+              color={theme.secondaryText} 
+            />
           </TouchableOpacity>
         </MotiView>
         
@@ -682,5 +952,21 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     marginLeft: 8,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#000',
+  },
+  emailLoader: {
+    marginVertical: 8,
+  },
+  errorText: {
+    color: '#ff4444',
+    fontSize: 12,
+    marginTop: -8,
+    marginBottom: 8,
+    marginLeft: 4
   },
 });

@@ -15,6 +15,7 @@ import { useNavigation } from '@react-navigation/native';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { supabase } from '../utils/supabase';
 import { toast } from 'sonner-native';
+import { fetchResearchByIdWithCache } from '../utils/researchService';
 
 // Debug test screen for research result issues
 export default function TestResearchResultScreen() {
@@ -114,75 +115,58 @@ export default function TestResearchResultScreen() {
 
   // Test fetching research by ID
   const testFetchResearch = async () => {
-    if (!inputId.trim()) {
-      Alert.alert('Error', 'Please enter a research or result ID');
+    if (!researchId) {
+      addLog('Please enter a research ID');
       return;
     }
 
-    setIsLoading(true);
-    setError(null);
-    setResultFound(false);
-    setResearchData(null);
-    setResultData(null);
-    setResearchId('');
-    
-    addLog(`Testing fetch for ID: ${inputId}`);
-    
     try {
-      // First, determine if this is a result_id or research_id
-      const resolvedResearchId = await getResearchId(inputId);
+      setIsLoading(true);
+      setError(null);
+      setResultFound(false);
       
-      if (!resolvedResearchId) {
-        setError('Could not find a valid research ID');
+      // Clear logs for a fresh test
+      setLogs([]);
+      
+      const resolvedResearchId = researchId.trim();
+      addLog(`Fetching research with ID: ${resolvedResearchId}`);
+      
+      // 1. Use our new cached method to fetch research by ID
+      addLog('Fetching from research_history_new with cache...');
+      const research = await fetchResearchByIdWithCache(resolvedResearchId);
+      
+      if (!research) {
+        addLog('No research history found with this ID');
+        setError('Research not found in history table');
         setIsLoading(false);
         return;
       }
       
-      setResearchId(resolvedResearchId);
-      addLog(`Using research_id: ${resolvedResearchId}`);
-
-      // 1. Fetch from research_history_new table
-      addLog('Fetching from research_history_new...');
-      const { data: historyData, error: historyError } = await supabase
-        .from('research_history_new')
+      addLog(`✅ Research history found successfully!`);
+      setResearchData(research);
+      
+      // 2. Fetch from research_results_new table - without using .single()
+      addLog('Fetching from research_results_new...');
+      const { data: resultsData, error: resultError } = await supabase
+        .from('research_results_new')
         .select('*')
         .eq('research_id', resolvedResearchId);
-      
-      if (historyError) {
-        addLog(`Error fetching research history: ${historyError.message}`);
-        setError(`History error: ${historyError.message}`);
-      } else if (!historyData || historyData.length === 0) {
-        addLog('No research history found with this ID');
-        setError('Research not found in history table');
-      } else {
-        // Use the first matching research record
-        const research = historyData[0];
-        addLog(`✅ Research history found successfully! (${historyData.length} records)`);
-        setResearchData(research);
         
-        // 2. Fetch from research_results_new table - without using .single()
-        addLog('Fetching from research_results_new...');
-        const { data: resultsData, error: resultError } = await supabase
-          .from('research_results_new')
-          .select('*')
-          .eq('research_id', resolvedResearchId);
-          
-        if (resultError) {
-          addLog(`Error fetching research result: ${resultError.message}`);
-          setError(`Result error: ${resultError.message}`);
-        } else if (!resultsData || resultsData.length === 0) {
-          addLog('No research results found with this ID');
-          setError('Result not found in results table');
-        } else {
-          addLog(`✅ Research results found successfully! (${resultsData.length} results)`);
-          // Use the most recent result (assuming created_at is available)
-          const sortedResults = [...resultsData].sort((a, b) => 
-            new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-          );
-          setResultData(sortedResults[0]);
-          setResultFound(true);
-          setError(null);
-        }
+      if (resultError) {
+        addLog(`Error fetching research result: ${resultError.message}`);
+        setError(`Result error: ${resultError.message}`);
+      } else if (!resultsData || resultsData.length === 0) {
+        addLog('No research results found with this ID');
+        setError('Result not found in results table');
+      } else {
+        addLog(`✅ Research results found successfully! (${resultsData.length} results)`);
+        // Use the most recent result (assuming created_at is available)
+        const sortedResults = [...resultsData].sort((a, b) => 
+          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+        setResultData(sortedResults[0]);
+        setResultFound(true);
+        setError(null);
       }
     } catch (err: any) {
       addLog(`Unexpected error: ${err.message || 'Unknown error'}`);
@@ -283,8 +267,8 @@ export default function TestResearchResultScreen() {
             style={styles.input}
             placeholder="Enter Research ID or Result ID"
             placeholderTextColor="#777"
-            value={inputId}
-            onChangeText={setInputId}
+            value={researchId}
+            onChangeText={setResearchId}
           />
 
           <View style={styles.buttonContainer}>

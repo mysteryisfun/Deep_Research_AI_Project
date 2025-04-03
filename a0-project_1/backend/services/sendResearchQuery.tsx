@@ -1,4 +1,5 @@
 import { storeResearchHistory, generateResearchId } from '../../utils/supabase';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export interface ResearchQueryParams {
   user_id: string;
@@ -23,6 +24,20 @@ export interface ResearchQueryResponse {
  */
 export async function sendResearchQuery(params: ResearchQueryParams): Promise<ResearchQueryResponse> {
   try {
+    // Check if we have a user_id parameter
+    if (!params.user_id) {
+      // Try to get from AsyncStorage as a fallback
+      const storedUserId = await AsyncStorage.getItem('research_app_user_id');
+      if (storedUserId) {
+        console.log(`Retrieved stored user ID: ${storedUserId}`);
+        params.user_id = storedUserId;
+      } else {
+        // Generate a temporary user ID as last resort
+        params.user_id = `user-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+        console.log(`Generated temporary user ID: ${params.user_id}`);
+      }
+    }
+
     // Generate a client-side research_id
     const research_id = generateResearchId();
     console.log(`Generated research_id: ${research_id}`);

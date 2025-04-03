@@ -107,7 +107,57 @@ export default function ResearchResultScreen() {
   useEffect(() => {
     console.log('ResearchResultScreen mounted with params:', JSON.stringify(route.params));
     console.log('Extracted researchId:', researchId);
-  }, [route.params, researchId]);
+    
+    // If we have any additional parameters that are useful, use them
+    const query = (routeParams as any).query;
+    const breadth = (routeParams as any).breadth || 3;
+    const depth = (routeParams as any).depth || 3;
+    const agent = (routeParams as any).agent || 'General Agent';
+    
+    if (query && !contextResult && !currentResearch?.query) {
+      console.log('Additional parameters received, updating context:', {
+        query,
+        breadth,
+        depth,
+        agent
+      });
+      
+      // We need to create a proper ResearchHistory object with all required fields
+      if (researchId) {
+        // Fetch the actual research data which will have all required fields
+        supabase
+          .from('research_history_new')
+          .select('*')
+          .eq('research_id', researchId)
+          .maybeSingle()
+          .then(({ data }) => {
+            if (data) {
+              console.log('Found existing research data, updating context');
+              setCurrentResearch(data);
+            } else {
+              console.log('No existing research data found, using route params');
+              // If no data found, we need to provide a minimal valid ResearchHistory object
+              setCurrentResearch({
+                research_id: researchId,
+                user_id: 'anonymous', // Fallback required field
+                query: query,
+                breadth: breadth,
+                depth: depth,
+                agent: agent,
+                include_technical_terms: false,
+                output_format: 'default',
+                status: 'completed',
+                created_at: new Date().toISOString(),
+                is_public: false
+              });
+            }
+          })
+          .catch((error: Error) => {
+            console.error('Error fetching research data:', error);
+          });
+      }
+    }
+  }, [route.params, researchId, contextResult, currentResearch, setCurrentResearch]);
   
   // Check if feedback was already submitted
   useEffect(() => {
@@ -123,30 +173,18 @@ export default function ResearchResultScreen() {
         } else {
           console.log(`No existing feedback found for research ${researchId}`);
           
-          // Double-check using direct query as fallback (to handle different table names)
+          // Double-check using direct query
           try {
-            // Try the standard table name first
-            let { data, error, count } = await supabase
+            const { data, error, count } = await supabase
               .from('research_feedback')
               .select('*', { count: 'exact' })
               .eq('research_id', researchId)
               .limit(1);
             
-            // If there's an error, try the alternative table name
             if (error) {
-              console.log('Trying alternative table name (research_feedbacks)');
-              const altResponse = await supabase
-                .from('research_feedbacks') 
-                .select('*', { count: 'exact' })
-                .eq('research_id', researchId)
-                .limit(1);
-              
-              data = altResponse.data;
-              count = altResponse.count;
-            }
-            
-            if (count && count > 0) {
-              console.log(`Found feedback in alternative check: ${count} records`);
+              console.error('Error in direct feedback check:', error);
+            } else if (count && count > 0) {
+              console.log(`Found feedback in direct check: ${count} records`);
               setFeedbackSubmitted(true);
             }
           } catch (fallbackErr) {
@@ -325,44 +363,23 @@ export default function ResearchResultScreen() {
             created_at: new Date().toISOString()
           };
           
-          // Try both table names
-          let succeeded = false;
+          // Try the RPC function to bypass potential foreign key issues
+          const { error: rpcError } = await supabase.rpc('submit_research_feedback', {
+            p_feedback_id: feedbackId,
+            p_research_id: researchId,
+            p_user_id: null,
+            p_rating: rating,
+            p_comment: feedbackComment || null,
+            p_created_at: new Date().toISOString()
+          });
           
-          // Try standard table name
-          try {
-            const { error } = await supabase
-              .from('research_feedback')
-              .insert(feedbackData);
-              
-            if (!error) {
-              succeeded = true;
-              console.log('Direct feedback submission to research_feedback succeeded');
-            }
-          } catch (stdErr) {
-            console.error('Error with standard table name:', stdErr);
-          }
-          
-          // If standard failed, try alternative
-          if (!succeeded) {
-            try {
-              const { error } = await supabase
-                .from('research_feedbacks')
-                .insert(feedbackData);
-                
-              if (!error) {
-                succeeded = true;
-                console.log('Direct feedback submission to research_feedbacks succeeded');
-              }
-            } catch (altErr) {
-              console.error('Error with alternative table name:', altErr);
-            }
-          }
-          
-          if (succeeded) {
+          if (!rpcError) {
+            console.log('Direct feedback submission via RPC succeeded');
             setFeedbackSubmitted(true);
             toast.success('Thank you for your feedback!');
           } else {
-            throw new Error('All submission attempts failed');
+            console.error('RPC error in direct submission:', rpcError);
+            toast.error('Failed to submit feedback');
           }
         } catch (directErr) {
           console.error('Error in direct submission:', directErr);
@@ -416,8 +433,15 @@ export default function ResearchResultScreen() {
       setCurrentResearch({
         research_id: researchId,
         query: 'Research query',
-        created_at: researchResult.created_at,
-        user_id: researchResult.user_id || 'unknown'
+        created_at: researchResult.created_at || new Date().toISOString(),
+        user_id: researchResult.user_id || 'unknown',
+        agent: 'general',
+        breadth: 3,
+        depth: 3,
+        include_technical_terms: false,
+        output_format: 'Research Paper',
+        status: 'completed',
+        is_public: false
       });
     }
   }, [researchResult, currentResearch, researchId, setCurrentResearch]);
@@ -621,7 +645,7 @@ export default function ResearchResultScreen() {
                     ordered_list: { marginBottom: 12 },
                     list_item: { color: theme.text, marginBottom: 8 },
                     code_block: { 
-                      backgroundColor: theme.secondaryBackground || '#1a1a1a',
+                      backgroundColor: theme.card,
                       padding: 16,
                       borderRadius: 8,
                       color: theme.text,
@@ -629,7 +653,7 @@ export default function ResearchResultScreen() {
                       marginVertical: 12,
                     },
                     code_inline: {
-                      backgroundColor: theme.secondaryBackground || '#1a1a1a',
+                      backgroundColor: theme.card,
                       padding: 4,
                       borderRadius: 4,
                       color: theme.accent,
@@ -637,7 +661,7 @@ export default function ResearchResultScreen() {
                     },
                     hr: { backgroundColor: theme.border, marginVertical: 16 },
                     table: { borderWidth: 1, borderColor: theme.border, marginVertical: 16 },
-                    thead: { backgroundColor: theme.secondaryBackground || '#1a1a1a' },
+                    thead: { backgroundColor: theme.card },
                     th: { padding: 8, color: theme.text, fontWeight: 'bold' },
                     td: { padding: 8, borderTopWidth: 1, borderTopColor: theme.border, color: theme.text },
                     image: { maxWidth: '100%', height: 'auto', marginVertical: 16, borderRadius: 8 }
@@ -648,7 +672,7 @@ export default function ResearchResultScreen() {
                 
                 <View style={styles.contentActions}>
                   <TouchableOpacity
-                    style={[styles.actionButton, { backgroundColor: theme.secondaryBackground }]}
+                    style={[styles.actionButton, { backgroundColor: theme.card }]}
                     onPress={handleCopyToClipboard}
                   >
                     <View style={styles.actionButtonContent}>

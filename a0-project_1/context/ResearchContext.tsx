@@ -102,17 +102,13 @@ export const ResearchProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
     console.log(`ResearchContext: Submitting feedback for research ${currentResearch.research_id}`);
     try {
-      const success = await submitResearchFeedback(
-        currentResearch.research_id,
+      await supabaseClient.submitFeedback({
+        research_id: currentResearch.research_id,
+        user_id: currentResearch.user_id,
         rating,
-        comment
-      );
-      
-      if (!success) {
-        console.error('Feedback submission failed');
-      } else {
-        console.log('Feedback submission was successful');
-      }
+        comment,
+      });
+      console.log('Feedback submission was successful');
     } catch (error) {
       console.error('Error in ResearchContext.submitFeedback:', error);
     }

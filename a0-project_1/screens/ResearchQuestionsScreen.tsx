@@ -18,8 +18,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { MotiView } from 'moti';
-import { fetchQuestions, submitAllAnswers, monitorQuestions } from '../utils/questionsManager';
 import { supabase } from '../utils/supabase';
+import { useUser } from '../context/UserContext';
 
 // Define types for the route params
 type RouteParams = {
@@ -41,6 +41,7 @@ type ResearchQuestion = {
 const ResearchQuestionsScreen = () => {
   const navigation = useNavigation();
   const route = useRoute<RouteProp<Record<string, RouteParams>, string>>();
+  const { userId: globalUserId } = useUser();
   
   // Get the research ID from the route params
   const { research_id, query } = route.params || {};
@@ -53,7 +54,7 @@ const ResearchQuestionsScreen = () => {
   const [success, setSuccess] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   
-  const stopMonitoringRef = useRef<(() => void) | null>(null);
+  const supabaseSubscriptionRef = useRef<any>(null);
   const scrollViewRef = useRef<ScrollView>(null);
 
   // Load questions when the component mounts
@@ -64,54 +65,128 @@ const ResearchQuestionsScreen = () => {
       return;
     }
     
+    // Initial fetch of questions
     loadQuestions();
     
-    // Setup real-time monitoring for questions
-    const stopMonitoring = monitorQuestions(research_id, (updatedQuestions) => {
-      setQuestions(updatedQuestions);
-      
-      // Update answers state with any new answers
-      setAnswers(prev => {
-        const newAnswers = { ...prev };
-        updatedQuestions.forEach(q => {
-          if (q.answer && !prev[q.question_id]) {
-            newAnswers[q.question_id] = q.answer;
-          }
-        });
-        return newAnswers;
-      });
-      
-      setHasQuestions(updatedQuestions.length > 0);
-    });
-    
-    stopMonitoringRef.current = stopMonitoring;
+    // Set up real-time subscription for questions
+    setupQuestionSubscription();
     
     // Cleanup on unmount
     return () => {
-      if (stopMonitoringRef.current) {
-        stopMonitoringRef.current();
-      }
+      cleanupSubscription();
     };
   }, [research_id]);
+  
+  // Set up Supabase real-time subscription for questions
+  const setupQuestionSubscription = () => {
+    if (!research_id) return;
+    
+    console.log(`Setting up real-time subscription for research_id: ${research_id}`);
+    
+    // Create and subscribe to a channel for research_questions_array
+    const questionsChannel = supabase
+      .channel(`research_questions:${research_id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'research_questions_array',
+          filter: `research_id=eq.${research_id}`
+        },
+        (payload: any) => {
+          console.log('Question change received:', payload);
+          
+          // Handle different event types
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            // Refresh questions on insert or update
+            loadQuestions();
+          }
+        }
+      )
+      .subscribe();
+    
+    // Store subscription ref for cleanup
+    supabaseSubscriptionRef.current = questionsChannel;
+  };
+  
+  // Clean up Supabase subscription
+  const cleanupSubscription = () => {
+    if (supabaseSubscriptionRef.current) {
+      supabase.removeChannel(supabaseSubscriptionRef.current);
+      supabaseSubscriptionRef.current = null;
+    }
+  };
   
   // Load initial questions
   const loadQuestions = async () => {
     setLoading(true);
+    setError(null);
+    
     try {
-      const fetchedQuestions = await fetchQuestions(research_id);
-      setQuestions(fetchedQuestions);
+      console.log(`Fetching questions for research ID: ${research_id}`);
+      
+      // First, try to get questions from research_questions_array table
+      const { data: batchData, error: batchError } = await supabase
+        .from('research_questions_array')
+        .select('*')
+        .eq('research_id', research_id)
+        .maybeSingle();
+      
+      if (batchError && batchError.code !== 'PGRST116') {
+        console.error('Error fetching question batch:', batchError);
+        throw batchError;
+      }
+      
+      let questionsArray: ResearchQuestion[] = [];
+      
+      if (batchData && batchData.questions && Array.isArray(batchData.questions)) {
+        console.log(`Found batch with ${batchData.questions.length} questions`);
+        
+        // Format the questions from the batch
+        questionsArray = batchData.questions.map((q: any, index: number) => ({
+          question_id: q.id || `${batchData.question_id}-q${index + 1}`,
+          research_id: research_id,
+          user_id: globalUserId || batchData.user_id,
+          question: q.text || q.question,
+          answer: q.answer || null,
+          answered: !!q.answer,
+          created_at: batchData.created_at || new Date().toISOString()
+        }));
+      } else {
+        // Fallback to direct questions if no batch is found
+        const { data: directQuestions, error: directError } = await supabase
+          .from('research_questions')
+          .select('*')
+          .eq('research_id', research_id)
+          .order('created_at', { ascending: true });
+        
+        if (directError) {
+          console.error('Error fetching direct questions:', directError);
+          // Don't throw here, just log the error as we might not have this table
+        }
+        
+        if (directQuestions && directQuestions.length > 0) {
+          console.log(`Found ${directQuestions.length} direct questions`);
+          questionsArray = directQuestions;
+        }
+      }
+      
+      // Set the questions state
+      setQuestions(questionsArray);
       
       // Initialize answers state with any existing answers
       const initialAnswers: Record<string, string> = {};
-      fetchedQuestions.forEach(q => {
+      questionsArray.forEach(q => {
         if (q.answer) {
           initialAnswers[q.question_id] = q.answer;
         }
       });
       setAnswers(initialAnswers);
       
-      setHasQuestions(fetchedQuestions.length > 0);
-    } catch (err) {
+      setHasQuestions(questionsArray.length > 0);
+      
+    } catch (err: any) {
       console.error('Error loading questions:', err);
       setError('Failed to load questions. Please try again.');
     } finally {
@@ -141,47 +216,95 @@ const ResearchQuestionsScreen = () => {
     
     try {
       console.log(`Submitting answers for research ID: ${research_id}`);
-      console.log('Raw answers to submit:', JSON.stringify(answers));
+      console.log('Answers to submit:', JSON.stringify(answers));
       
-      // Debug question IDs format
-      const questionIds = Object.keys(answers);
-      console.log(`Question IDs in submission: ${questionIds.join(', ')}`);
-      
-      // Get any available questions from the database to double-check format
-      const { data: batchData, error: batchError } = await supabase
-        .from('research_questions_array')
-        .select('*')
-        .eq('research_id', research_id)
-        .maybeSingle();
+      // For each answer, insert or update in the database
+      const allSubmissions = Object.entries(answers).map(async ([questionId, answer]) => {
+        if (!answer || answer.trim() === '') return null;
         
-      if (batchData) {
-        console.log(`Found question batch: ${batchData.question_id}`);
-        console.log(`Batch contains ${batchData.questions?.length || 0} questions`);
-        if (batchData.questions?.length > 0) {
-          console.log(`Sample question ID format: ${batchData.questions[0].id}`);
-        }
-      } else if (batchError) {
-        console.warn(`Error checking question batch: ${batchError.message}`);
-      }
-      
-      const result = await submitAllAnswers(research_id, answers);
-      
-      if (result.success) {
-        console.log('Successfully submitted answers');
+        // Find the corresponding question
+        const question = questions.find(q => q.question_id === questionId);
+        if (!question) return null;
         
-        // Verbose logging to help with debugging
-        if (result.data) {
-          console.log('Submission result:', JSON.stringify(result.data));
+        // Determine if we should update research_questions_array or direct questions
+        if (questionId.includes('-q')) {
+          // This is a batch question, update the batch
+          const batchId = questionId.split('-q')[0];
+          const questionIndex = parseInt(questionId.split('-q')[1]) - 1;
           
-          // Check if answers were actually saved
-          const savedAnswers = result.data.answers || [];
-          console.log(`Saved ${savedAnswers.length} answers to database`);
+          // Get the current batch
+          const { data: currentBatch, error: getBatchError } = await supabase
+            .from('research_questions_array')
+            .select('*')
+            .eq('question_id', batchId)
+            .single();
           
-          if (savedAnswers.length > 0) {
-            console.log('First saved answer:', JSON.stringify(savedAnswers[0]));
+          if (getBatchError) {
+            console.error('Error getting batch for update:', getBatchError);
+            throw getBatchError;
+          }
+          
+          if (currentBatch && currentBatch.questions) {
+            // Update the specific question in the batch
+            const updatedQuestions = [...currentBatch.questions];
+            if (updatedQuestions[questionIndex]) {
+              updatedQuestions[questionIndex].answer = answer;
+              
+              // Update the batch in the database
+              const { error: updateError } = await supabase
+                .from('research_questions_array')
+                .update({
+                  questions: updatedQuestions
+                })
+                .eq('question_id', batchId);
+              
+              if (updateError) {
+                console.error('Error updating batch questions:', updateError);
+                throw updateError;
+              }
+              
+              return {
+                question_id: questionId,
+                answer
+              };
+            }
+          }
+        } else {
+          // Direct question, update research_questions table if it exists
+          try {
+            const { error: updateError } = await supabase
+              .from('research_questions')
+              .update({
+                answer,
+                answered: true
+              })
+              .eq('question_id', questionId);
+            
+            if (updateError) {
+              console.error('Error updating direct question:', updateError);
+              // Don't throw here as the table might not exist
+            }
+            
+            return {
+              question_id: questionId,
+              answer
+            };
+          } catch (updateErr) {
+            console.error('Error in direct question update:', updateErr);
+            // Continue with the next question
           }
         }
         
+        return null;
+      });
+      
+      // Wait for all submissions to complete
+      const results = await Promise.all(allSubmissions);
+      const successfulSubmissions = results.filter(Boolean);
+      
+      console.log(`Successfully submitted ${successfulSubmissions.length} answers`);
+      
+      if (successfulSubmissions.length > 0) {
         // Update the questions list with the new answers
         const updatedQuestions = questions.map(q => {
           const answer = answers[q.question_id];
@@ -211,17 +334,9 @@ const ResearchQuestionsScreen = () => {
           });
         }, 2000);
       } else {
-        console.error('Failed to submit answers:', result.error);
-        setError('Failed to submit answers. Please try again.');
-        
-        // More detailed error message
-        Alert.alert(
-          'Submission Error',
-          `Failed to submit answers: ${result.error?.message || 'Unknown error'}`,
-          [{ text: 'OK' }]
-        );
+        setError('No answers were successfully submitted. Please try again.');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error submitting answers:', err);
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(`An unexpected error occurred: ${errorMessage}`);
