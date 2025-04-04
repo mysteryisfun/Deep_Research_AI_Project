@@ -2,12 +2,24 @@
 const { getDefaultConfig } = require('expo/metro-config');
 
 /** @type {import('expo/metro-config').MetroConfig} */
-const config = getDefaultConfig(__dirname);
+const defaultConfig = getDefaultConfig(__dirname);
 
-// Ensure web compatibility
-config.resolver.sourceExts.push('web.js', 'web.ts', 'web.tsx');
-
-// Allow metro to resolve the web-specific entry point
-config.resolver.resolverMainFields.unshift('browser');
-
-module.exports = config; 
+module.exports = {
+  resolver: {
+    sourceExts: [...defaultConfig.resolver.sourceExts, 'mjs', 'cjs'],
+    assetExts: [...defaultConfig.resolver.assetExts]
+  },
+  transformer: {
+    ...defaultConfig.transformer,
+    minifierConfig: {
+      compress: {
+        drop_console: false, // Keep console logs for debugging
+      }
+    }
+  },
+  server: {
+    ...defaultConfig.server,
+  },
+  // Reduce workers for better stability
+  maxWorkers: 2
+}; 

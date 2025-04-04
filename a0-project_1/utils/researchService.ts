@@ -2,6 +2,7 @@ import { supabase, generateResearchId } from './supabase';
 import { toast } from 'sonner-native';
 import { cacheManager } from './cacheManager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { sendResearchCompletionNotification } from './notificationService';
 
 /**
  * Utility service for handling Research Progress functions
@@ -375,7 +376,7 @@ export const markResearchAsComplete = async (
     // First, check if the research is already marked as complete in research_history_new
     const { data: historyData, error: historyError } = await supabase
       .from('research_history_new')
-      .select('status')
+      .select('status, query')  // Added query to use for notification
       .eq('research_id', researchId)
       .single();
       
@@ -470,6 +471,14 @@ export const markResearchAsComplete = async (
         .catch(error => {
           console.error('Error updating cached history status:', error);
         });
+        
+      // Send a push notification for research completion
+      if (historyData?.query) {
+        sendResearchCompletionNotification(researchId, historyData.query)
+          .catch(notificationError => {
+            console.error('Error sending research completion notification:', notificationError);
+          });
+      }
     }
     
     return true;

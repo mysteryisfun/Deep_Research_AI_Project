@@ -35,6 +35,7 @@ import {
   ProfileData
 } from '../utils/profileService';
 import { useUser } from '../context/UserContext';
+import { areNotificationsEnabled, toggleNotifications } from '../utils/notificationService';
 
 export default function ProfileScreen() {
   const navigation = useNavigation<any>();
@@ -55,7 +56,7 @@ export default function ProfileScreen() {
   const [userId, setUserId] = useState<string | null>(null);
   
   // Settings state
-  const [pushNotifications, setPushNotifications] = useState(true);
+  const [pushNotifications, setPushNotifications] = useState(false);
   const [inAppNotifications, setInAppNotifications] = useState(true);
   
   // Profile image
@@ -77,6 +78,20 @@ export default function ProfileScreen() {
   useEffect(() => {
     fetchUserProfile();
     fetchUserEmail();
+  }, []);
+
+  useEffect(() => {
+    // Load notification settings
+    const loadNotificationSettings = async () => {
+      try {
+        const notificationsEnabled = await areNotificationsEnabled();
+        setPushNotifications(notificationsEnabled);
+      } catch (error) {
+        console.error('Error loading notification settings:', error);
+      }
+    };
+    
+    loadNotificationSettings();
   }, []);
 
   const fetchUserProfile = async () => {
@@ -555,7 +570,24 @@ export default function ProfileScreen() {
             </View>
             <Switch
               value={pushNotifications}
-              onValueChange={setPushNotifications}
+              onValueChange={async (value) => {
+                try {
+                  const success = await toggleNotifications(value);
+                  if (success) {
+                    setPushNotifications(value);
+                  } else {
+                    // If failed to enable, revert the toggle
+                    setPushNotifications(false);
+                    toast('Could not enable notifications. Please check your permissions.', {
+                      duration: 3000,
+                      type: 'warning',
+                    });
+                  }
+                } catch (error) {
+                  console.error('Error toggling notifications:', error);
+                  setPushNotifications(false);
+                }
+              }}
               trackColor={{ false: '#DEE2E6', true: theme.accent }}
               thumbColor={'#FFFFFF'}
             />

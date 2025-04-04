@@ -3,9 +3,10 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StyleSheet } from 'react-native';
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { Toaster } from 'sonner-native';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import HomeScreen from "./screens/HomeScreen";
 import LoginScreen from "./screens/LoginScreen";
+import LandingScreen from "./screens/LandingScreen";
 import DashboardScreen from "./screens/DashboardScreen";
 import ChooseAgentScreen from "./screens/ChooseAgentScreen";
 import HistoryScreen from "./screens/HistoryScreen";
@@ -25,6 +26,7 @@ import BusinessAgentScreen from "./screens/BusinessAgentScreen";
 import HealthAgentScreen from "./screens/HealthAgentScreen";
 import FinancialAgentScreen from "./screens/FinancialAgentScreen";
 import PrivacySecurityScreen from "./screens/PrivacySecurityScreen";
+import LegalInfoScreen from "./screens/LegalInfoScreen";
 import TestN8nWebhook from "./TestN8nWebhook";
 import SimpleTestScreen from "./screens/SimpleTestScreen";
 import TestResearchResultScreen from "./screens/TestResearchResultScreen";
@@ -45,6 +47,8 @@ import { recordSessionStart } from './utils/userStorage';
 import { clearExpiredCache } from './utils/cacheManager';
 import { supabase } from './utils/supabase';
 import { ActivityIndicator, View } from 'react-native';
+import * as Notifications from 'expo-notifications';
+import { registerForPushNotificationsAsync, setupNotificationHandler } from './utils/notificationService';
 
 // Configure global error handling for unhandled JS errors
 if (!__DEV__) {
@@ -68,6 +72,7 @@ function RootStack({ initialRouteName }: { initialRouteName: string }) {
         animation: 'slide_from_right'
       }}
     >
+      <Stack.Screen name="Landing" component={LandingScreen} />
       <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="Signup" component={SignupScreen} />
       <Stack.Screen name="Home" component={HomeScreen} />
@@ -107,6 +112,7 @@ function RootStack({ initialRouteName }: { initialRouteName: string }) {
       <Stack.Screen name="Profile" component={ProfileScreen} />
       <Stack.Screen name="ChangePasswordScreen" component={ChangePasswordScreen} />
       <Stack.Screen name="PrivacySecurityScreen" component={PrivacySecurityScreen} />
+      <Stack.Screen name="LegalInfoScreen" component={LegalInfoScreen} />
       <Stack.Screen 
         name="LogoutScreen" 
         component={LogoutScreen}
@@ -136,7 +142,21 @@ function RootStack({ initialRouteName }: { initialRouteName: string }) {
 
 export default function App() {
   const [isLoading, setIsLoading] = useState(true);
-  const [initialRouteName, setInitialRouteName] = useState('Login');
+  const [initialRouteName, setInitialRouteName] = useState('Landing');
+  const navigationRef = useRef(null);
+
+  // Register for push notifications
+  useEffect(() => {
+    registerForPushNotificationsAsync()
+      .then(token => {
+        if (token) {
+          console.log('Push notification token:', token);
+        }
+      })
+      .catch(err => {
+        console.error('Error registering for push notifications:', err);
+      });
+  }, []);
 
   // Check for existing session on app start
   useEffect(() => {
@@ -149,17 +169,17 @@ export default function App() {
         
         if (error) {
           console.error('[App] Error checking session:', error);
-          setInitialRouteName('Login');
+          setInitialRouteName('Landing');
         } else if (session) {
           console.log('[App] Existing session found, user is logged in');
           setInitialRouteName('Home');
         } else {
-          console.log('[App] No session found, redirecting to login');
-          setInitialRouteName('Login');
+          console.log('[App] No session found, redirecting to landing');
+          setInitialRouteName('Landing');
         }
       } catch (error) {
         console.error('[App] Unexpected error checking auth session:', error);
-        setInitialRouteName('Login');
+        setInitialRouteName('Landing');
       } finally {
         setIsLoading(false);
       }
@@ -213,6 +233,14 @@ export default function App() {
     initializeProfile();
   }, []);
 
+  // Set up notification handler
+  useEffect(() => {
+    if (navigationRef.current) {
+      const unsubscribe = setupNotificationHandler(navigationRef.current);
+      return unsubscribe;
+    }
+  }, [navigationRef.current]);
+
   // Show loading screen while checking auth state
   if (isLoading) {
     return (
@@ -230,6 +258,7 @@ export default function App() {
             <ResearchProvider>
               <Toaster />
               <NavigationContainer
+                ref={navigationRef}
                 onStateChange={(state) => {
                   // Handle navigation state changes if needed
                 }}
