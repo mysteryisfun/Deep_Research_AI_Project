@@ -1,9 +1,9 @@
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { StyleSheet, StatusBar as RNStatusBar, View, Text, TouchableOpacity } from 'react-native';
+import { StyleSheet } from 'react-native';
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { Toaster } from 'sonner-native';
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import HomeScreen from "./screens/HomeScreen";
 import LoginScreen from "./screens/LoginScreen";
 import DashboardScreen from "./screens/DashboardScreen";
@@ -31,21 +31,20 @@ import TestResearchResultScreen from "./screens/TestResearchResultScreen";
 import TestActiveQueueScreen from "./screens/TestActiveQueueScreen";
 import SimpleQueueTestScreen from "./screens/SimpleQueueTestScreen";
 import AppErrorBoundary from './components/AppErrorBoundary';
-import { ThemeProvider, useTheme, lightTheme } from './context/ThemeContext';
+import { ThemeProvider } from './context/ThemeContext';
 import { ResearchProvider } from './context/ResearchContext';
-import { safelyAccessProperty } from './error-guard';
 import { handleGlobalError, errorHandler, ErrorCategory, ErrorSeverity } from './utils/errorHandler';
 import 'react-native-gesture-handler';
 import ResearchProgressScreen from "./screens/ResearchProgressScreen";
 import TestProgressScreen from "./screens/TestProgressScreen";
-import { useNavigation } from '@react-navigation/native';
 import SignupScreen from "./screens/SignupScreen";
 import DevControlScreen from "./screens/DevControlScreen";
 import DevPasswordScreen from "./screens/DevPasswordScreen";
 import { UserProvider } from './context/UserContext';
-// Import the user profile storage utility
 import { recordSessionStart } from './utils/userStorage';
 import { clearExpiredCache } from './utils/cacheManager';
+import { supabase } from './utils/supabase';
+import { ActivityIndicator, View } from 'react-native';
 
 // Configure global error handling for unhandled JS errors
 if (!__DEV__) {
@@ -135,72 +134,40 @@ function RootStack({ initialRouteName }: { initialRouteName: string }) {
   );
 }
 
-// Create a simple initialization screen to debug any startup issues
-function InitializationScreen({ onSelectTestScreen }: { onSelectTestScreen: (screen: string) => void }) {
-  return (
-    <SafeAreaProvider>
-      <View style={styles.loadingContainer}>
-        <Text style={styles.loadingText}>Test Environment</Text>
-        <Text style={styles.instructionText}>
-          Select a test screen below to continue
-        </Text>
-        
-        {/* Test Buttons for Direct Access */}
-        <View style={styles.testButtonsContainer}>
-          <TouchableOpacity 
-            style={styles.testButton}
-            onPress={() => onSelectTestScreen('TestProgressScreen')}
-          >
-            <Text style={styles.testButtonText}>Research Progress Test</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.testButton}
-            onPress={() => onSelectTestScreen('TestN8nWebhook')}
-          >
-            <Text style={styles.testButtonText}>N8n Webhook Test</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.testButton}
-            onPress={() => onSelectTestScreen('TestResearchResultScreen')}
-          >
-            <Text style={styles.testButtonText}>Research Result Test</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.testButton}
-            onPress={() => onSelectTestScreen('TestActiveQueueScreen')}
-          >
-            <Text style={styles.testButtonText}>Active Research Queue</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.testButton}
-            onPress={() => onSelectTestScreen('SimpleQueueTest')}
-          >
-            <Text style={styles.testButtonText}>Simple Queue Test</Text>
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.testButton, { backgroundColor: '#6c63ff' }]}
-            onPress={() => onSelectTestScreen('DevPasswordScreen')}
-          >
-            <Text style={styles.testButtonText}>Developer Controls</Text>
-          </TouchableOpacity>
-        </View>
-        
-        {/* Option to go to normal app */}
-        <TouchableOpacity 
-          style={[styles.testButton, styles.loginButton]}
-          onPress={() => onSelectTestScreen('Login')}
-        >
-          <Text style={styles.testButtonText}>Go to Login Screen</Text>
-        </TouchableOpacity>
-      </View>
-    </SafeAreaProvider>
-  );
-}
-
 export default function App() {
-  // Simple state to track if a test screen was selected
-  const [selectedRoute, setSelectedRoute] = React.useState<string | null>(null);
-  
+  const [isLoading, setIsLoading] = useState(true);
+  const [initialRouteName, setInitialRouteName] = useState('Login');
+
+  // Check for existing session on app start
+  useEffect(() => {
+    const checkAuthSession = async () => {
+      try {
+        console.log('[App] Checking for existing session...');
+        
+        // Get current session from Supabase
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          console.error('[App] Error checking session:', error);
+          setInitialRouteName('Login');
+        } else if (session) {
+          console.log('[App] Existing session found, user is logged in');
+          setInitialRouteName('Home');
+        } else {
+          console.log('[App] No session found, redirecting to login');
+          setInitialRouteName('Login');
+        }
+      } catch (error) {
+        console.error('[App] Unexpected error checking auth session:', error);
+        setInitialRouteName('Login');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    checkAuthSession();
+  }, []);
+
   // Handle uncaught promise rejections
   useEffect(() => {
     const rejectionTrackingListener = (event: any, promise: Promise<any>, reason: any) => {
@@ -245,16 +212,14 @@ export default function App() {
     
     initializeProfile();
   }, []);
-  
-  // Function to handle test screen selection
-  const handleSelectTestScreen = (screen: string) => {
-    console.log(`Selected test screen: ${screen}`);
-    setSelectedRoute(screen);
-  };
 
-  // Show initialization screen until user selects a test screen
-  if (selectedRoute === null) {
-    return <InitializationScreen onSelectTestScreen={handleSelectTestScreen} />;
+  // Show loading screen while checking auth state
+  if (isLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#6c63ff" />
+      </View>
+    );
   }
 
   return (
@@ -265,16 +230,11 @@ export default function App() {
             <ResearchProvider>
               <Toaster />
               <NavigationContainer
-                onError={(error) => {
-                  errorHandler.captureError(
-                    error,
-                    ErrorCategory.UI,
-                    ErrorSeverity.MEDIUM,
-                    { source: 'navigation' }
-                  );
+                onStateChange={(state) => {
+                  // Handle navigation state changes if needed
                 }}
               >
-                <RootStack initialRouteName={selectedRoute} />
+                <RootStack initialRouteName={initialRouteName} />
               </NavigationContainer>
             </ResearchProvider>
           </UserProvider>
@@ -294,71 +254,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#0f172a',
-    padding: 20,
-  },
-  loadingText: {
-    color: 'white',
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 10,
-  },
-  instructionText: {
-    color: '#94a3b8',
-    fontSize: 16,
-    marginBottom: 30,
-    textAlign: 'center',
-  },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#0f172a',
-    padding: 20,
-  },
-  errorTitle: {
-    color: 'white',
-    fontSize: 22,
-    fontWeight: 'bold',
-    marginBottom: 10,
-  },
-  errorMessage: {
-    color: '#f87171',
-    fontSize: 16,
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  errorButton: {
-    backgroundColor: '#6366f1',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 8,
-  },
-  errorButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  testButtonsContainer: {
-    alignItems: 'stretch',
-    width: '100%',
-    maxWidth: 300,
-    marginBottom: 30,
-  },
-  testButton: {
-    backgroundColor: '#6366f1',
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    borderRadius: 8,
-    marginBottom: 12,
-    alignItems: 'center',
-  },
-  loginButton: {
-    backgroundColor: '#059669',
-    marginTop: 20,
-  },
-  testButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
-  },
+  }
 });

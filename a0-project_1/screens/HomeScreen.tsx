@@ -11,14 +11,14 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { MaterialIcons, Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, NavigationProp, ParamListBase } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { MotiView } from 'moti';
 import { StarBorder } from '../components/ui/StarBorder';
 import FloatingPathsBackground from '../components/ui/FloatingPathsBackground';
 
 export default function HomeScreen() {
-  const navigation = useNavigation();
+  const navigation = useNavigation<NavigationProp<ParamListBase>>();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const { theme, isDarkMode } = useTheme();
   
@@ -72,7 +72,10 @@ export default function HomeScreen() {
             <MotiView
               from={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
-              transition={{ type: 'timing', duration: 1000 }}
+              transition={{ 
+                type: 'timing', 
+                duration: 1000,
+              } as any}
               style={styles.titleContainer}
             >
               <Text style={styles.title}>Welcome to the Future</Text>

@@ -729,6 +729,15 @@ export default function DevControlScreen() {
           
           <TouchableOpacity 
             style={[styles.testScreenButton, { borderColor: theme.border }]}
+            onPress={() => navigation.navigate('TestN8nWebhook' as never)}
+          >
+            <MaterialIcons name="webhook" size={22} color={theme.accent} />
+            <Text style={[styles.testScreenText, { color: theme.text }]}>N8n Webhook Test</Text>
+            <MaterialIcons name="chevron-right" size={22} color={theme.secondaryText} />
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[styles.testScreenButton, { borderColor: theme.border }]}
             onPress={() => navigation.navigate('TestProgressScreen' as never)}
           >
             <MaterialIcons name="access-time" size={22} color={theme.accent} />

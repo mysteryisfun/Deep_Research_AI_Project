@@ -34,9 +34,10 @@ import {
   logoutAndClearCache,
   ProfileData
 } from '../utils/profileService';
+import { useUser } from '../context/UserContext';
 
 export default function ProfileScreen() {
-  const navigation = useNavigation();
+  const navigation = useNavigation<any>();
   const { isDarkMode, theme, toggleTheme } = useTheme();  // Profile state
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -71,6 +72,8 @@ export default function ProfileScreen() {
   // Add refreshing state
   const [refreshing, setRefreshing] = useState(false);
   
+  const { setUserId: setUserIdGlobal } = useUser();
+
   useEffect(() => {
     fetchUserProfile();
     fetchUserEmail();
@@ -257,6 +260,7 @@ export default function ProfileScreen() {
   const handleLogout = async () => {
     try {
       setLoading(true);
+      toast.info('Logging out...');
       
       // Use the profileService to handle logout and cache clearing
       const success = await logoutAndClearCache();
@@ -265,11 +269,19 @@ export default function ProfileScreen() {
         throw new Error('Failed to sign out');
       }
       
+      // Also clear the user ID from context if needed
+      if (setUserIdGlobal) {
+        setUserIdGlobal(null);
+      }
+      
       toast.success('Signed out successfully');
       
-      // Navigate to sign in screen
-      navigation.navigate('SignInScreen' as never);
-    } catch (error: any) {
+      // Navigate to Login screen with reset to prevent going back
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Login' }],
+      });
+    } catch (error) {
       console.error('Error logging out:', error);
       toast.error('Failed to sign out. Please try again.');
     } finally {
