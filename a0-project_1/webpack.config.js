@@ -7,11 +7,9 @@ module.exports = async function (env, argv) {
       ...env,
       babel: {
         dangerouslyAddModulePathsToTranspile: [
-          'react-native-reanimated',
-          'moti',
-          '@motify',
-          'react-native-safe-area-context',
-          'react-native-web',
+          '@gorhom/bottom-sheet',
+          '@stream-io/flat-list-mvcp',
+          'expo-image',
         ],
       },
     },

@@ -4,9 +4,6 @@ module.exports = function(api) {
   return {
     presets: ['babel-preset-expo'],
     plugins: [
-      // For React Native Reanimated
-      'react-native-reanimated/plugin',
-      
       // Support for environment variables
       ["module:react-native-dotenv", {
         "moduleName": "@env",

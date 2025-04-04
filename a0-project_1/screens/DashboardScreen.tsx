@@ -26,6 +26,31 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { MotiView } from 'moti';
 import { BlurView } from 'expo-blur';
 import { toast } from 'sonner-native';
+import Svg, {
+  Circle,
+  Path,
+  G,
+  Rect,
+  Text as SvgText,
+  Defs,
+  Mask,
+  RadialGradient,
+  Stop,
+  LinearGradient as SvgLinearGradient,
+  Filter,
+  FeDropShadow
+} from 'react-native-svg';
+
+// Dark Theme Color Palette - Darker shade
+const COLORS = {
+  midnightNavy: '#050A14',      // Darker background
+  glacialTeal: 'rgba(100, 255, 218, 0.7)',
+  burnishedGold: '#FFC107',
+  deepCoralGlow: 'rgba(255, 111, 97, 0.2)',
+  charcoalSmoke: '#191D24',     // Darker card background
+  paleMoonlight: '#E0E0E0',
+  translucent: 'rgba(25, 29, 36, 0.8)',  // Minimalistic translucent color
+};
 
 // Custom blur component for cross-platform compatibility
 const GlassMorphicBlur = ({ intensity = 50, tint = 'dark', style, children }) => {
@@ -39,48 +64,220 @@ const GlassMorphicBlur = ({ intensity = 50, tint = 'dark', style, children }) =>
   
   // For Android, we use a semi-transparent background
   return (
-    <View style={[style, { backgroundColor: 'rgba(15, 23, 42, 0.75)' }]}>
+    <View style={[style, { backgroundColor: COLORS.translucent }]}>
       {children}
     </View>
   );
 };
 
-// Glow effect component
-const GlowEffect = ({ color = '#6c63ff', size = 100, style }) => {
-  const pulseAnim = useRef(new Animated.Value(0.6)).current;  useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 2000,
-          useNativeDriver: false,
-        }),
-        Animated.timing(pulseAnim, {
-          toValue: 0.6,
-          duration: 2000,
-          useNativeDriver: false,
-        }),
-      ])
-    ).start();
+// SVG CPU Architecture Animation Component
+const CPUArchitectureAnimation = ({ onPress, size }) => {
+  const [mounted, setMounted] = useState(false);
+  
+  useEffect(() => {
+    setMounted(true);
+    return () => setMounted(false);
   }, []);
-
+  
+  // Define path data for each animation - exactly matching dash.html
+  const paths = [
+    { d: "M 10 20 h 79.5 q 5 0 5 5 v 30", gradId: "cpu-blue-grad", delay: 1000, duration: 5000 },
+    { d: "M 180 10 h -69.7 q -5 0 -5 5 v 30", gradId: "cpu-yellow-grad", delay: 6000, duration: 2000 },
+    { d: "M 130 20 v 21.8 q 0 5 -5 5 h -25", gradId: "cpu-pinkish-grad", delay: 4000, duration: 6000 },
+    { d: "M 170 80 v -21.8 q 0 -5 -5 -5 h -65", gradId: "cpu-white-grad", delay: 3000, duration: 3000 },
+    { d: "M 135 65 h 15 q 5 0 5 5 v 10 q 0 5 -5 5 h -39.8 q -5 0 -5 -5 v -35", gradId: "cpu-green-grad", delay: 9000, duration: 4000 },
+    { d: "M 94.8 95 v -46", gradId: "cpu-orange-grad", delay: 3000, duration: 7000 },
+    { d: "M 88 88 v -15 q 0 -5 -5 -5 h -10 q -5 0 -5 -5 v -5 q 0 -5 5 -5 h 28", gradId: "cpu-cyan-grad", delay: 4000, duration: 4000 },
+    { d: "M 30 30 h 25 q 5 0 5 5 v 6.5 q 0 5 5 5 h 35", gradId: "cpu-rose-grad", delay: 3000, duration: 3000 }
+  ];
+  
+  // Function to extract points from an SVG path - improved parser
+  const extractPathPoints = (pathD, numPoints = 100) => {
+    const points = [];
+    
+    // Simple path parsing for the specific path commands used in our SVG
+    const parts = pathD.split(/(?=[MmLlHhVvQqCcSsTtAaZz])/);
+    
+    let x = 0, y = 0;
+    let moveToX = 0, moveToY = 0;
+    
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i].trim();
+      if (!part) continue;
+      
+      const cmd = part[0];
+      const args = part.slice(1).trim().split(/[\s,]+/).map(Number);
+      
+      switch (cmd) {
+        case 'M': // Move to absolute
+          x = moveToX = args[0];
+          y = moveToY = args[1];
+          points.push({ x, y });
+          break;
+          
+        case 'h': // Horizontal line relative
+          // Add multiple intermediate points for lines
+          const endX = x + args[0];
+          for (let j = 1; j <= 10; j++) {
+            const t = j / 10;
+            points.push({ x: x + (endX - x) * t, y });
+          }
+          x = endX;
+          break;
+          
+        case 'v': // Vertical line relative
+          // Add multiple intermediate points for lines
+          const endY = y + args[0];
+          for (let j = 1; j <= 10; j++) {
+            const t = j / 10;
+            points.push({ x, y: y + (endY - y) * t });
+          }
+          y = endY;
+          break;
+          
+        case 'q': // Quadratic curve
+          // For quadratic bezier curves, sample points along the curve
+          const controlX = args[0];
+          const controlY = args[1];
+          const endQX = args[2];
+          const endQY = args[3];
+          
+          for (let t = 0; t <= 1; t += 0.05) {
+            // Quadratic bezier formula
+            const qx = Math.pow(1 - t, 2) * x + 2 * (1 - t) * t * controlX + Math.pow(t, 2) * endQX;
+            const qy = Math.pow(1 - t, 2) * y + 2 * (1 - t) * t * controlY + Math.pow(t, 2) * endQY;
+            points.push({ x: qx, y: qy });
+          }
+          
+          x = endQX;
+          y = endQY;
+          break;
+      }
+    }
+    
+    // Ensure we have enough points by interpolating if needed
+    if (points.length < numPoints) {
+      const result = [];
+      for (let i = 0; i < numPoints; i++) {
+        const index = (i / (numPoints - 1)) * (points.length - 1);
+        const lowerIndex = Math.floor(index);
+        const upperIndex = Math.ceil(index);
+        
+        if (lowerIndex === upperIndex) {
+          result.push(points[lowerIndex]);
+        } else {
+          const t = index - lowerIndex;
+          const p1 = points[lowerIndex];
+          const p2 = points[upperIndex];
+          result.push({
+            x: p1.x + (p2.x - p1.x) * t,
+            y: p1.y + (p2.y - p1.y) * t
+          });
+        }
+      }
+      return result;
+    }
+    
+    return points;
+  };
+  
+  // Animations for the circling lights
+  const AnimatedCircle = ({ path, delay, duration, gradId }) => {
+    const [position, setPosition] = useState(0);
+    const points = extractPathPoints(path.d);
+    
+    useEffect(() => {
+      let animationFrame;
+      let startTime;
+      
+      const animate = (timestamp) => {
+        if (!startTime) startTime = timestamp;
+        const elapsed = timestamp - startTime;
+        
+        // Calculate position (0 to 1) with delay
+        if (elapsed > delay) {
+          const positionInAnimation = ((elapsed - delay) % duration) / duration;
+          setPosition(positionInAnimation);
+        }
+        
+        if (mounted) {
+          animationFrame = requestAnimationFrame(animate);
+        }
+      };
+      
+      animationFrame = requestAnimationFrame(animate);
+      
+      return () => {
+        cancelAnimationFrame(animationFrame);
+      };
+    }, [delay, duration, mounted]);
+    
+    // Get current point on the path
+    const pointIndex = Math.floor(position * (points.length - 1));
+    const currentPoint = points[Math.min(pointIndex, points.length - 1)];
+    
+    return (
+      <Circle 
+        cx={currentPoint?.x || 0} 
+        cy={currentPoint?.y || 0} 
+        r="8" 
+        fill={`url(#${gradId})`} 
+      />
+    );
+  };
+  
   return (
-    <Animated.View
-      style={[
-        {
-          position: 'absolute',
-          width: size,
-          height: size,
-          borderRadius: size / 2,
-          backgroundColor: color,
-          opacity: pulseAnim.interpolate({
-            inputRange: [0.6, 1],
-            outputRange: [0.15, 0.25],
-          }),
-        },
-        style,
-      ]}
-    />
+    <Pressable onPress={onPress} style={styles.cpuButtonContainer}>
+      <Svg 
+        width={size} 
+        height={size * 0.8} 
+        viewBox="0 0 200 100"
+        style={styles.cpuSvg}
+      >
+        <Defs>
+          {/* CPU connection gradient */}
+          <SvgLinearGradient id="cpu-connection-gradient" x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0%" stopColor="#4F4F4F" />
+            <Stop offset="60%" stopColor="#121214" />
+          </SvgLinearGradient>
+          
+          {/* CPU Text Gradient */}
+          <SvgLinearGradient id="cpu-text-gradient" x1="0" y1="0" x2="1" y2="0">
+            <Stop offset="0%" stopColor="#666666" />
+            <Stop offset="25%" stopColor="white" />
+            <Stop offset="50%" stopColor="#666666" />
+          </SvgLinearGradient>
+        </Defs>
+        
+        {/* Paths */}
+        <G stroke="#666" fill="none" strokeWidth="0.3">
+          {paths.map((path, index) => (
+            <Path key={`path-${index}`} d={path.d} />
+          ))}
+        </G>
+
+        {/* New Research Button (replaces CPU box) */}
+        <G>
+          {/* Cpu connections */}
+          <G fill="url(#cpu-connection-gradient)">
+            <Rect x="93" y="37" width="2.5" height="5" rx="0.7" />
+            <Rect x="104" y="37" width="2.5" height="5" rx="0.7" />
+            <Rect x="116.3" y="44" width="2.5" height="5" rx="0.7" />
+            <Rect x="122.8" y="44" width="2.5" height="5" rx="0.7" />
+            <Rect x="104" y="16" width="2.5" height="5" rx="0.7" />
+            <Rect x="114.5" y="16" width="2.5" height="5" rx="0.7" />
+            <Rect x="80" y="14" width="2.5" height="5" rx="0.7" />
+            <Rect x="87" y="14" width="2.5" height="5" rx="0.7" />
+          </G>
+          
+          {/* Main Button Rectangle */}
+          <Rect x="60" y="40" width="80" height="20" rx="3" fill="#181818" />
+          
+          {/* Button Text */}
+          <SvgText x="64" y="53" fontSize="6" fill="url(#cpu-text-gradient)" fontWeight="700" letterSpacing="0.05">START + RESEARCH</SvgText>
+        </G>
+      </Svg>
+    </Pressable>
   );
 };
 
@@ -96,50 +293,40 @@ export default function DashboardScreen() {
       duration: 500,
       useNativeDriver: true,
     }).start();
-  }, []);  const headerOpacity = scrollY.interpolate({
+  }, []);
+  
+  const headerOpacity = scrollY.interpolate({
     inputRange: [0, 100],
     outputRange: [1, 0.9],
     extrapolate: 'clamp',
   });
 
-  const headerScale = scrollY.interpolate({
-    inputRange: [0, 100],
-    outputRange: [1, 0.98],
-    extrapolate: 'clamp',
-  });
-  
   const navigateToScreen = (screenName) => {
     navigation.navigate(screenName);
   };
+  
+  // Get screen dimensions for responsive layout
+  const { width, height } = Dimensions.get('window');
+  const isSmallScreen = width < 380;
+  
+  // Circle sizes
+  const centerCircleSize = Math.min(width, height) * 0.6; // Further increased size
+  const outerCircleSize = Math.min(width, height) * 0.20;
   
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="light" />
       
-      {/* Background Glow Effects */}
-      <View style={styles.backgroundContainer}>
-        <LinearGradient
-          colors={['#0F172A', '#1A1F35', '#16162D']}
-          style={StyleSheet.absoluteFill}
-        />
-        <GlowEffect 
-          color="#4A00E0" 
-          size={300} 
-          style={{ top: -100, left: -100 }} 
-        />
-        <GlowEffect 
-          color="#8E2DE2" 
-          size={250} 
-          style={{ bottom: 100, right: -50 }} 
-        />
-      </View>      {/* Header */}
+      {/* Simple dark background */}
+      <View style={styles.backgroundContainer} />
+      
+      {/* Header */}
       <View style={styles.headerContainer}>
         <Animated.View 
           style={[
             styles.header,
             {
               opacity: headerOpacity,
-              backgroundColor: 'transparent'
             }
           ]}
         >
@@ -147,7 +334,7 @@ export default function DashboardScreen() {
             style={styles.backButton}
             onPress={() => navigation.goBack()}
           >
-            <Ionicons name="arrow-back" size={24} color="#fff" />
+            <Ionicons name="arrow-back" size={24} color={COLORS.paleMoonlight} />
           </TouchableOpacity>
           
           <View style={styles.emptySpace} />
@@ -156,101 +343,111 @@ export default function DashboardScreen() {
             style={styles.profileButton}
             onPress={() => navigation.navigate('Profile')}
           >
-            <Ionicons name="person-circle-outline" size={28} color="#fff" />
+            <Ionicons name="person-circle-outline" size={28} color={COLORS.paleMoonlight} />
           </TouchableOpacity>
         </Animated.View>
-      </View>      {/* Main Content */}
-      <Animated.ScrollView 
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        onScroll={Animated.event(
-          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-          { useNativeDriver: true }
-        )}
-        scrollEventThrottle={16}
+      </View>
+      
+      {/* Circular Buttons Layout */}
+      <Animated.View 
+        style={[
+          styles.circularContainer,
+          { opacity: fadeAnim }
+        ]}
       >
-        <View style={styles.topBanner}>
-          <WavyBackground
-            colors={['#6C63FF', '#8E2DE2', '#4A00E0', '#2948ff', '#6C63FF']}
-            speed="fast"
-            verticalOffset={-40}
-            waveOpacity={0.6}
-            style={styles.wavyBgContainer}
-          >
-            <View style={styles.welcomeContainer}>
-              <MotiView
-                from={{ opacity: 0, translateY: 20 }}
-                animate={{ opacity: 1, translateY: 0 }}
-                transition={{ type: 'timing', duration: 800 }}
-              >
-                <Text style={styles.welcomeTitle}>Research Dashboard</Text>
-                <Text style={styles.welcomeSubtitle}>
-                  Access your research tools and resources
-                </Text>
-              </MotiView>
-            </View>
-          </WavyBackground>
-        </View>
-
-        {/* Grid Layout */}
-        <View style={styles.gridContainer}>
-          {/* Row 1 */}
-          <View style={styles.gridRow}>
-            <GridButton 
-              title="Start New Research"
-              icon={<MaterialIcons name="add-task" size={32} color="#fff" />}
-              color={['#4A00E0', '#8E2DE2']}
-              delay={100}
-              onPress={() => navigateToScreen('ChooseAgentScreen')}
-            />
-            <GridButton 
-              title="History"
-              icon={<MaterialIcons name="history" size={32} color="#fff" />}
-              color={['#1A2980', '#26D0CE']}
-              delay={200}
-              onPress={() => navigateToScreen('History')}
-            />
-          </View>
-          
-          {/* Row 2 */}
-          <View style={styles.gridRow}>
-            <GridButton 
-              title="Active Queue"
-              icon={<MaterialCommunityIcons name="clipboard-text-clock" size={32} color="#fff" />}
-              color={['#6a3093', '#a044ff']}
-              delay={300}
-              onPress={() => navigateToScreen('Queue')}
-            />
-            <GridButton 
-              title="Find Study"
-              icon={<Feather name="search" size={32} color="#fff" />}
-              color={['#396afc', '#2948ff']}
-              delay={400}
-              onPress={() => navigateToScreen('FindStudyScreen')}
-            />
-          </View>
-          
-          {/* Row 3 - Single Button */}
-          <View style={styles.gridRowSingle}>
-            <GridButton 
-              title="Our Agents"
-              icon={<FontAwesome5 name="robot" size={32} color="#fff" />}
-              color={['#3a1c71', '#d76d77', '#ffaf7b']}
-              delay={500}
-              fullWidth
-              onPress={() => navigateToScreen('AgentListScreen')}
-            />
-          </View>
-        </View>
-      </Animated.ScrollView>
+        {/* Center Button - CPU Architecture for New Research */}
+        <MotiView
+          from={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ type: 'timing', duration: 500 }}
+          style={[styles.centerButtonWrapper]}
+        >
+          <CPUArchitectureAnimation 
+            onPress={() => navigateToScreen('ChooseAgentScreen')}
+            size={centerCircleSize}
+          />
+        </MotiView>
+        
+        {/* Top Button - History */}
+        <MotiView
+          from={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ type: 'timing', duration: 500, delay: 100 }}
+          style={[
+            styles.outerButtonWrapper,
+            { top: '5%', left: '50%', marginLeft: -outerCircleSize/2, zIndex: 10 }
+          ]}
+        >
+          <CircleButton 
+            title="History"
+            icon={<MaterialIcons name="history" size={28} color={COLORS.paleMoonlight} />}
+            onPress={() => navigateToScreen('History')}
+            size={outerCircleSize}
+          />
+        </MotiView>
+        
+        {/* Right Button - Active Queue */}
+        <MotiView
+          from={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ type: 'timing', duration: 500, delay: 150 }}
+          style={[
+            styles.outerButtonWrapper,
+            { top: '50%', right: '5%', marginTop: -outerCircleSize/2, zIndex: 10 }
+          ]}
+        >
+          <CircleButton 
+            title="Queue"
+            icon={<MaterialCommunityIcons name="clipboard-text-clock" size={28} color={COLORS.paleMoonlight} />}
+            onPress={() => navigateToScreen('Queue')}
+            size={outerCircleSize}
+          />
+        </MotiView>
+        
+        {/* Bottom Button - Find Study */}
+        <MotiView
+          from={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ type: 'timing', duration: 500, delay: 200 }}
+          style={[
+            styles.outerButtonWrapper,
+            { bottom: '5%', left: '50%', marginLeft: -outerCircleSize/2, zIndex: 10 }
+          ]}
+        >
+          <CircleButton 
+            title="Find Study"
+            icon={<Feather name="search" size={28} color={COLORS.paleMoonlight} />}
+            onPress={() => navigateToScreen('FindStudyScreen')}
+            size={outerCircleSize}
+          />
+        </MotiView>
+        
+        {/* Left Button - Our Agents */}
+        <MotiView
+          from={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ type: 'timing', duration: 500, delay: 250 }}
+          style={[
+            styles.outerButtonWrapper,
+            { top: '50%', left: '5%', marginTop: -outerCircleSize/2, zIndex: 10 }
+          ]}
+        >
+          <CircleButton 
+            title="Agents"
+            icon={<FontAwesome5 name="robot" size={28} color={COLORS.paleMoonlight} />}
+            onPress={() => navigateToScreen('AgentListScreen')}
+            size={outerCircleSize}
+          />
+        </MotiView>
+      </Animated.View>
     </SafeAreaView>
   );
 }
 
-// Grid Button Component with enhanced animations
-const GridButton = ({ title, icon, color, delay = 0, fullWidth = false, onPress }) => {
+// Circle Button Component
+const CircleButton = ({ title, icon, onPress, size, isPrimary = false }) => {
   const scaleAnim = useRef(new Animated.Value(1)).current;
-  const glowAnim = useRef(new Animated.Value(0.5)).current;
+  const glowAnim = useRef(new Animated.Value(0)).current;
   const [isPressed, setIsPressed] = useState(false);
   
   useEffect(() => {
@@ -277,8 +474,8 @@ const GridButton = ({ title, icon, color, delay = 0, fullWidth = false, onPress 
           useNativeDriver: true,
         }),
         Animated.timing(glowAnim, {
-          toValue: 0.5,
-          duration: 500,
+          toValue: 0,
+          duration: 300,
           useNativeDriver: false,
         })
       ]).start();
@@ -286,122 +483,54 @@ const GridButton = ({ title, icon, color, delay = 0, fullWidth = false, onPress 
   }, [isPressed]);
   
   return (
-    <MotiView
-      from={{ opacity: 0, translateY: 20 }}
-      animate={{ opacity: 1, translateY: 0 }}
-      transition={{ 
-        type: 'timing', 
-        duration: 600,
-        delay
-      }}
-      style={[styles.gridItemContainer, fullWidth && styles.gridItemFull]}
+    <Pressable
+      onPressIn={() => setIsPressed(true)}
+      onPressOut={() => setIsPressed(false)}
+      onPress={onPress}
+      style={[styles.circleButtonContainer, { width: size, height: size }]}
     >
-      <Pressable
-        onPressIn={() => setIsPressed(true)}
-        onPressOut={() => setIsPressed(false)}
-        onPress={onPress}
-        style={styles.gridButtonTouch}
+      <Animated.View 
+        style={[
+          styles.circleButton,
+          { 
+            transform: [{ scale: scaleAnim }],
+            borderColor: isPrimary ? COLORS.glacialTeal : 'rgba(100, 255, 218, 0.3)',
+            width: size,
+            height: size,
+          }
+        ]}
       >
-        <Animated.View 
-          style={[
-            styles.gridButton,
-            { 
-              transform: [{ scale: scaleAnim }],
-              shadowOpacity: glowAnim,
-            }
-          ]}
-        >
-          <GlassMorphicBlur intensity={40} style={styles.gridBlurContainer}>
-            <LinearGradient
-              colors={color}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.gridButtonGradient}
-            >
-              <View style={styles.gridButtonIcon}>
-                {icon}
-              </View>
-              <Text style={styles.gridButtonText}>{title}</Text>
-            </LinearGradient>
-          </GlassMorphicBlur>
-        </Animated.View>
-      </Pressable>
-    </MotiView>
+        <GlassMorphicBlur intensity={isPrimary ? 40 : 30} style={styles.circleBlurContainer}>
+          <Animated.View 
+            style={[
+              styles.buttonGlow,
+              {
+                opacity: glowAnim,
+                backgroundColor: isPrimary ? COLORS.glacialTeal : COLORS.deepCoralGlow,
+              }
+            ]} 
+          />
+          <View style={styles.circleButtonContent}>
+            <View style={styles.circleButtonIcon}>
+              {icon}
+            </View>
+            <Text style={[
+              styles.circleButtonText,
+              isPrimary ? styles.primaryButtonText : null
+            ]}>
+              {title}
+            </Text>
+          </View>
+        </GlassMorphicBlur>
+      </Animated.View>
+    </Pressable>
   );
 };
-
-// Activity Card Component
-const ActivityCard = ({ title, date, status, statusColor, icon, iconBgColor, delay = 0 }) => {
-  const scaleAnim = useRef(new Animated.Value(1)).current;
-  const [isPressed, setIsPressed] = useState(false);
-  
-  useEffect(() => {
-    if (isPressed) {
-      Animated.spring(scaleAnim, {
-        toValue: 0.98,
-        friction: 8,
-        tension: 50,
-        useNativeDriver: true,
-      }).start();
-    } else {
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        friction: 8,
-        tension: 50,
-        useNativeDriver: true,
-      }).start();
-    }
-  }, [isPressed]);
-  
-  return (
-    <MotiView
-      from={{ opacity: 0, translateY: 10 }}
-      animate={{ opacity: 1, translateY: 0 }}
-      transition={{ 
-        type: 'timing', 
-        duration: 400,
-        delay
-      }}
-      style={styles.activityCardContainer}
-    >
-      <Pressable
-        onPressIn={() => setIsPressed(true)}
-        onPressOut={() => setIsPressed(false)}
-      >
-        <Animated.View 
-          style={[
-            styles.activityCard,
-            { transform: [{ scale: scaleAnim }] }
-          ]}
-        >
-          <GlassMorphicBlur intensity={35} style={styles.activityCardBlur}>
-            <View style={styles.activityIconContainer}>
-              <View style={[styles.activityIconBg, { backgroundColor: iconBgColor }]}>
-                {icon}
-              </View>
-            </View>
-            <View style={styles.activityContent}>
-              <Text style={styles.activityTitle}>{title}</Text>
-              <Text style={styles.activityDate}>{date}</Text>
-              <View style={[styles.activityStatus, { backgroundColor: `${statusColor}20` }]}>
-                <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
-                <Text style={[styles.activityStatusText, { color: statusColor }]}>{status}</Text>
-              </View>
-            </View>
-          </GlassMorphicBlur>
-        </Animated.View>
-      </Pressable>
-    </MotiView>
-  );
-};
-
-const { width } = Dimensions.get('window');
-const gridItemWidth = width <= 360 ? (width - 32) / 2 : (width - 48) / 2; // Adjust for smaller screens
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0F172A',
+    backgroundColor: COLORS.midnightNavy,
   },
   headerContainer: {
     position: 'absolute',
@@ -416,208 +545,111 @@ const styles = StyleSheet.create({
     right: 0,
     top: 0,
     bottom: 0,
-    zIndex: -1,
-  },  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: 'transparent',
-    borderBottomWidth: 0,
-    shadowOpacity: 0,
-    elevation: 0,
+    backgroundColor: COLORS.midnightNavy,
   },
-  headerBlur: {
+  header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    borderBottomColor: 'transparent',
   },
   backButton: {
-    padding: 6,
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: COLORS.translucent,
   },
   emptySpace: {
     flex: 1,
   },
   profileButton: {
-    padding: 6,
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: COLORS.translucent,
   },
-  scrollContent: {
-    paddingBottom: 30,
-  },
-  topBanner: {
-    height: 180,
-    width: '100%',
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
-    overflow: 'hidden',
-  },
-  wavyBgContainer: {
-    height: 180,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
-    justifyContent: 'center',
-    paddingHorizontal: 20,
-    overflow: 'hidden',
-  },
-  welcomeContainer: {
-    marginBottom: 10,
-  },
-  welcomeTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 8,
-    textShadowColor: 'rgba(0, 0, 0, 0.3)',
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 3,
-  },
-  welcomeSubtitle: {
-    fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.9)',
-    textShadowColor: 'rgba(0, 0, 0, 0.2)',
-    textShadowOffset: { width: 0.5, height: 0.5 },
-    textShadowRadius: 2,
-  },  gridContainer: {
-    padding: width <= 360 ? 12 : 16,
-    marginTop: 10,
-    marginBottom: width <= 360 ? 12 : 16,
-  },
-  gridRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  gridRowSingle: {
-    marginBottom: 16,
-  },
-  gridItemContainer: {
-    width: gridItemWidth,
-    height: 140,
-    borderRadius: 16,
-    overflow: 'hidden',
-  },
-  gridItemFull: {
-    width: '100%',
-  },
-  gridButtonTouch: {
-    flex: 1,
-  },  gridButton: {
-    flex: 1,
-    borderRadius: width <= 360 ? 12 : 16,
-    overflow: 'hidden',
-    shadowColor: '#6c63ff',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.5,
-    shadowRadius: 10,
-    elevation: 7,
-  },
-  gridBlurContainer: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
-    borderRadius: 16,
-    overflow: 'hidden',
-  },
-  gridButtonGradient: {
+  circularContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 16,
   },
-  gridButtonIcon: {
-    marginBottom: 12,
-  },  gridButtonText: {
-    color: '#fff',
-    fontSize: width <= 360 ? 14 : 16,
+  centerButtonWrapper: {
+    position: 'absolute',
+    alignSelf: 'center',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 5,
+  },
+  outerButtonWrapper: {
+    position: 'absolute',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  
+  // CPU Button Styles 
+  cpuButtonContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cpuSvg: {
+    backgroundColor: 'transparent',
+  },
+  cpuButtonLabel: {
+    color: COLORS.paleMoonlight,
+    fontSize: 16,
     fontWeight: '600',
+    marginTop: 8,
     textAlign: 'center',
-    textShadowColor: 'rgba(0, 0, 0, 0.3)',
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 2,
-    marginTop: width <= 360 ? 8 : 12,
   },
-  recentActivityContainer: {
-    padding: 16,
-    paddingTop: 0,
+  
+  // Circle Button Styles
+  circleButtonContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
   },
-  sectionTitleContainer: {
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#fff',
-    marginBottom: 8,
-  },
-  sectionDivider: {
-    height: 2,
-    backgroundColor: 'rgba(108, 99, 255, 0.4)',
-    width: 50,
-    borderRadius: 1,
-  },
-  activityCardContainer: {
-    marginBottom: 12,
-  },  activityCard: {
-    borderRadius: width <= 360 ? 10 : 12,
+  circleButton: {
+    borderRadius: 1000, // Large value for perfect circle
     overflow: 'hidden',
-    shadowColor: '#6c63ff',
+    borderWidth: 1.5,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 4,
+    shadowColor: COLORS.glacialTeal,
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 3,
-    marginBottom: width <= 360 ? 8 : 12,
+    shadowRadius: 10,
   },
-  activityCardBlur: {
-    flexDirection: 'row',
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
-  },
-  activityIconContainer: {
-    marginRight: 16,
-  },
-  activityIconBg: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  circleBlurContainer: {
+    flex: 1,
+    width: '100%',
+    borderRadius: 1000,
+    overflow: 'hidden',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  activityContent: {
-    flex: 1,
+  buttonGlow: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    opacity: 0,
   },
-  activityTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
-    marginBottom: 4,
+  circleButtonContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 10,
   },
-  activityDate: {
-    fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.6)',
+  circleButtonIcon: {
     marginBottom: 8,
   },
-  activityStatus: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  statusDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginRight: 5,
-  },
-  activityStatusText: {
-    fontSize: 12,
+  circleButtonText: {
+    color: COLORS.paleMoonlight,
+    fontSize: 14,
     fontWeight: '500',
+    textAlign: 'center',
+  },
+  primaryButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

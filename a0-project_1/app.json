@@ -33,7 +33,7 @@
       "bundler": "metro",
       "build": {
         "babel": {
-          "include": ["react-native-reanimated"]
+          "include": []
         }
       }
     },
