@@ -37,6 +37,29 @@ import ResearchProgressScreen from "./screens/ResearchProgressScreen";
 import TestProgressScreen from "./screens/TestProgressScreen";
 import { useNavigation } from '@react-navigation/native';
 import SignupScreen from "./screens/SignupScreen";
+<<<<<<< Updated upstream
+=======
+import DevControlScreen from "./screens/DevControlScreen";
+import DevPasswordScreen from "./screens/DevPasswordScreen";
+import { UserProvider } from './context/UserContext';
+import { recordSessionStart } from './utils/userStorage';
+import { clearExpiredCache } from './utils/cacheManager';
+import { supabase } from './utils/supabase';
+import { ActivityIndicator, View } from 'react-native';
+import { AuthProvider } from './context/AuthContext';
+import ResetPasswordScreen from './screens/ResetPasswordScreen';
+
+// Configure global error handling for unhandled JS errors
+if (!__DEV__) {
+  // Only in production to avoid interfering with dev tools
+  const globalErrorHandler = (error: Error, isFatal?: boolean) => {
+    handleGlobalError(error, 'Unhandled JS Exception');
+  };
+  
+  // Set up global error handler
+  ErrorUtils.setGlobalHandler(globalErrorHandler);
+}
+>>>>>>> Stashed changes
 
 const Stack = createNativeStackNavigator();
 
@@ -107,15 +130,105 @@ function RootStack({ initialRouteName }: { initialRouteName: string }) {
       <Stack.Screen name="TestN8nWebhook" component={TestN8nWebhook} />
       <Stack.Screen name="TestProgressScreen" component={TestProgressScreen} />
       <Stack.Screen name="SimpleTest" component={SimpleTestScreen} />
+<<<<<<< Updated upstream
       <Stack.Screen name="TestResearchQueue" component={TestResearchQueueScreen} />
+=======
+      <Stack.Screen name="TestResearchResultScreen" component={TestResearchResultScreen} />
+      <Stack.Screen name="TestActiveQueueScreen" component={TestActiveQueueScreen} />
+      <Stack.Screen name="SimpleQueueTest" component={SimpleQueueTestScreen} />
+      <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
+>>>>>>> Stashed changes
     </Stack.Navigator>
   );
 }
 
+<<<<<<< Updated upstream
 // Create a simple initialization screen to debug any startup issues
 function InitializationScreen({ onSelectTestScreen }: { onSelectTestScreen: (screen: string) => void }) {
   return (
     <SafeAreaProvider>
+=======
+export default function App() {
+  const [isLoading, setIsLoading] = useState(true);
+  const [initialRouteName, setInitialRouteName] = useState('Login');
+
+  // Check for existing session on app start
+  useEffect(() => {
+    const checkAuthSession = async () => {
+      try {
+        console.log('[App] Checking for existing session...');
+        
+        // Get current session from Supabase
+        const { data: { session }, error } = await supabase.auth.getSession();
+        
+        if (error) {
+          console.error('[App] Error checking session:', error);
+          setInitialRouteName('Login');
+        } else {
+          // Always set to Login screen regardless of session state
+          console.log('[App] Setting initial route to Login');
+          setInitialRouteName('Login');
+        }
+      } catch (error) {
+        console.error('[App] Unexpected error checking auth session:', error);
+        setInitialRouteName('Login');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    checkAuthSession();
+  }, []);
+
+  // Handle uncaught promise rejections
+  useEffect(() => {
+    const rejectionTrackingListener = (event: any, promise: Promise<any>, reason: any) => {
+      errorHandler.captureError(
+        reason || new Error('Unhandled promise rejection'),
+        ErrorCategory.UNKNOWN,
+        ErrorSeverity.HIGH,
+        { source: 'unhandled_promise_rejection' }
+      );
+    };
+    
+    // Setup listeners
+    if (!__DEV__) {
+      const { addEventListener, removeEventListener } = global as any;
+      if (addEventListener && removeEventListener) {
+        addEventListener('unhandledrejection', rejectionTrackingListener);
+        
+        return () => {
+          removeEventListener('unhandledrejection', rejectionTrackingListener);
+        };
+      }
+    }
+  }, []);
+  
+  // Initialize user profile caching and record app session start
+  useEffect(() => {
+    const initializeProfile = async () => {
+      console.log('[App] Initializing user profile caching');
+      
+      try {
+        // Record app session start in usage stats
+        await recordSessionStart();
+        
+        // Clear expired cache items (older than 7 days)
+        await clearExpiredCache();
+        
+        console.log('[App] User profile initialization completed');
+      } catch (error) {
+        console.error('[App] Error initializing user profile:', error);
+      }
+    };
+    
+    initializeProfile();
+  }, []);
+
+  // Show loading screen while checking auth state
+  if (isLoading) {
+    return (
+>>>>>>> Stashed changes
       <View style={styles.loadingContainer}>
         <Text style={styles.loadingText}>Initializing App...</Text>
         
@@ -173,12 +286,29 @@ export default function App() {
     <AppErrorBoundary>
       <SafeAreaProvider>
         <ThemeProvider>
+<<<<<<< Updated upstream
           <ResearchProvider>
             <Toaster />
             <NavigationContainer>
               <RootStack initialRouteName={initialRoute} />
             </NavigationContainer>
           </ResearchProvider>
+=======
+          <AuthProvider>
+            <UserProvider>
+              <ResearchProvider>
+                <Toaster />
+                <NavigationContainer
+                  onStateChange={(state) => {
+                    // Handle navigation state changes if needed
+                  }}
+                >
+                  <RootStack initialRouteName={initialRouteName} />
+                </NavigationContainer>
+              </ResearchProvider>
+            </UserProvider>
+          </AuthProvider>
+>>>>>>> Stashed changes
         </ThemeProvider>
       </SafeAreaProvider>
     </AppErrorBoundary>

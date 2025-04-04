@@ -58,7 +58,7 @@ const LoginScreen = () => {
         return;
       }
 
-      // Attempt to sign in
+      // Attempt to sign in with password verification
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -86,6 +86,76 @@ const LoginScreen = () => {
           routes: [{ name: 'Home' }],
         });
       }
+<<<<<<< Updated upstream
+=======
+
+      // Verify the user ID matches the one in the database
+      if (data.user.id !== existingUser.id) {
+        console.error('User ID mismatch');
+        await supabase.auth.signOut();
+        toast.error('Authentication error. Please try again.');
+        setLoading(false);
+        return;
+      }
+
+      // Check if profile exists and update last login
+      const { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', data.user.id)
+        .single();
+
+      if (profileError || !profileData) {
+        // Create profile if it doesn't exist
+        const { error: createProfileError } = await supabase
+          .from('profiles')
+          .insert([
+            {
+              id: data.user.id,
+              email: trimmedEmail,
+              username: existingUser.username || trimmedEmail.split('@')[0],
+              avatar_url: null,
+              bio: null,
+              full_name: existingUser.full_name,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+              last_login: new Date().toISOString()
+            }
+          ]);
+
+        if (createProfileError) {
+          console.error('Profile creation error:', createProfileError);
+          await supabase.auth.signOut();
+          toast.error('Error creating user profile. Please try again.');
+          setLoading(false);
+          return;
+        }
+      } else {
+        // Update last login time
+        const { error: updateError } = await supabase
+          .from('profiles')
+          .update({
+            last_login: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', data.user.id);
+
+        if (updateError) {
+          console.error('Error updating last login:', updateError);
+          // Don't block login if update fails
+        }
+      }
+
+      // Store the authenticated user ID in the global context
+      await setUserId(data.user.id);
+      console.log(`Login: Stored user ID ${data.user.id} in global context`);
+
+      // Success! Navigate to Home
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Home' }],
+      });
+>>>>>>> Stashed changes
     } catch (error: any) {
       console.error('Login error:', error);
       Alert.alert(
@@ -190,6 +260,7 @@ const LoginScreen = () => {
         </Text>
       </Text>
 
+<<<<<<< Updated upstream
       {/* Skip Login Button */}
       <TouchableOpacity
         style={styles.skipButton}
@@ -201,6 +272,8 @@ const LoginScreen = () => {
         <Text style={styles.skipButtonText}>Skip Login</Text>
       </TouchableOpacity>
 
+=======
+>>>>>>> Stashed changes
       {/* Forgot Password Modal */}
       <Modal
         animationType="slide"
@@ -394,16 +467,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
     textAlign: 'center',
-  },
-  skipButton: {
-    marginTop: 20,
-    alignItems: 'center',
-    paddingVertical: 10,
-  },
-  skipButtonText: {
-    color: '#4caf50',
-    fontSize: 16,
-    fontWeight: 'bold',
   },
 });
 

@@ -18,6 +18,7 @@ type RootStackParamList = {
   Login: undefined;
   Signup: undefined;
   Home: undefined;
+  ResetPassword: { email?: string; token?: string };
 };
 
 type LoginScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Login'>;
@@ -31,29 +32,78 @@ export default function LoginScreen() {
   const [resetEmail, setResetEmail] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isResetLoading, setIsResetLoading] = useState(false);
+  const [emailError, setEmailError] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [errorModalVisible, setErrorModalVisible] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [resetSuccessMessage, setResetSuccessMessage] = useState('');
 
   // Handle login with Supabase
   const handleLogin = async () => {
+    // Reset error messages
+    setEmailError('');
+    setPasswordError('');
+    
     if (!email || !password) {
-      Alert.alert('Error', 'Please enter both email and password');
+      if (!email) setEmailError('Email is required');
+      if (!password) setPasswordError('Password is required');
       return;
     }
 
     setIsLoading(true);
     try {
+      // First check if the user exists in the database
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('email', email.toLowerCase().trim())
+        .single();
+
+      if (userError || !userData) {
+        setErrorMessage('Invalid login credentials');
+        setErrorModalVisible(true);
+        setIsLoading(false);
+        return;
+      }
+
+      // Attempt to sign in with password verification
       const { data, error } = await supabase.auth.signInWithPassword({
-        email,
+        email: email.toLowerCase().trim(),
         password
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error('Login error:', error);
+        setErrorMessage('Invalid login credentials');
+        setErrorModalVisible(true);
+        setIsLoading(false);
+        return;
+      }
+
+      if (!data?.user) {
+        setErrorMessage('Invalid login credentials');
+        setErrorModalVisible(true);
+        setIsLoading(false);
+        return;
+      }
+
+      // Verify the user ID matches the one in the database
+      if (data.user.id !== userData.id) {
+        console.error('User ID mismatch');
+        await supabase.auth.signOut();
+        setErrorMessage('Invalid login credentials');
+        setErrorModalVisible(true);
+        setIsLoading(false);
+        return;
+      }
 
       // Successfully logged in
       console.log('Login successful', data);
       navigation.navigate('Home');
-    } catch (error) {
+    } catch (error: any) {
       console.error('Login error:', error);
-      Alert.alert('Login Failed', error.message || 'Could not log in with those credentials');
+      setErrorMessage('Invalid login credentials');
+      setErrorModalVisible(true);
     } finally {
       setIsLoading(false);
     }
@@ -66,26 +116,49 @@ export default function LoginScreen() {
       return;
     }
 
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(resetEmail)) {
+      Alert.alert('Error', 'Please enter a valid email address.');
+      return;
+    }
+
     setIsResetLoading(true);
     try {
+      // Check if the email exists in the database
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('email', resetEmail.toLowerCase().trim())
+        .single();
+
+      if (userError || !userData) {
+        Alert.alert('Error', 'Email not found. Please check your email or sign up.');
+        setIsResetLoading(false);
+        return;
+      }
+
+      // Send password reset email
       const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, {
         redirectTo: 'researchapp://reset-password',
       });
 
       if (error) throw error;
 
-      Alert.alert(
-        'Reset Password',
-        `A reset password link has been sent to ${resetEmail}.`
-      );
+      setResetSuccessMessage(`A password reset link has been sent to ${resetEmail}.`);
       setModalVisible(false);
       setResetEmail('');
-    } catch (error) {
-      console.error('Password reset error:', error);
-      Alert.alert('Reset Failed', error.message || 'Failed to send reset link');
+    } catch (error: any) {
+      console.error('Forgot password error:', error);
+      Alert.alert('Error', error.message || 'Could not send reset password link');
     } finally {
       setIsResetLoading(false);
     }
+  };
+
+  // Navigate to ResetPassword screen
+  const navigateToResetPassword = () => {
+    navigation.navigate('ResetPassword', { email: email });
   };
 
   // Handle OAuth sign in (Google)
@@ -97,11 +170,13 @@ export default function LoginScreen() {
       });
 
       if (error) throw error;
-      console.log('Google sign in initiated', data);
-      // OAuth flow will continue in browser/redirect
-    } catch (error) {
+
+      // Successfully signed in with Google
+      console.log('Google sign in successful', data);
+      navigation.navigate('Home');
+    } catch (error: any) {
       console.error('Google sign in error:', error);
-      Alert.alert('Sign In Failed', error.message || 'Could not sign in with Google');
+      Alert.alert('Google Sign In Failed', error.message || 'Could not sign in with Google');
     } finally {
       setIsLoading(false);
     }
@@ -116,11 +191,13 @@ export default function LoginScreen() {
       });
 
       if (error) throw error;
-      console.log('Apple sign in initiated', data);
-      // OAuth flow will continue in browser/redirect
-    } catch (error) {
+
+      // Successfully signed in with Apple
+      console.log('Apple sign in successful', data);
+      navigation.navigate('Home');
+    } catch (error: any) {
       console.error('Apple sign in error:', error);
-      Alert.alert('Sign In Failed', error.message || 'Could not sign in with Apple');
+      Alert.alert('Apple Sign In Failed', error.message || 'Could not sign in with Apple');
     } finally {
       setIsLoading(false);
     }
@@ -140,26 +217,33 @@ export default function LoginScreen() {
       <View style={styles.inputContainer}>
         <Text style={styles.label}>Email</Text>
         <TextInput
-          style={styles.input}
+          style={[styles.input, emailError ? styles.inputError : null]}
           placeholder="hello@company.com"
           placeholderTextColor="#666"
           value={email}
-          onChangeText={setEmail}
+          onChangeText={(text) => {
+            setEmail(text);
+            setEmailError('');
+          }}
           keyboardType="email-address"
           autoCapitalize="none"
           editable={!isLoading}
         />
+        {emailError ? <Text style={styles.errorText}>{emailError}</Text> : null}
       </View>
 
       <View style={styles.inputContainer}>
         <Text style={styles.label}>Password</Text>
-        <View style={styles.passwordInputWrapper}>
+        <View style={[styles.passwordInputWrapper, passwordError ? styles.inputError : null]}>
           <TextInput
             style={[styles.input, { flex: 1 }]}
             placeholder="Your password"
             placeholderTextColor="#666"
             value={password}
-            onChangeText={setPassword}
+            onChangeText={(text) => {
+              setPassword(text);
+              setPasswordError('');
+            }}
             secureTextEntry={secureTextEntry}
             editable={!isLoading}
           />
@@ -171,12 +255,13 @@ export default function LoginScreen() {
             <Feather name={secureTextEntry ? 'eye-off' : 'eye'} size={20} color="#666" />
           </TouchableOpacity>
         </View>
+        {passwordError ? <Text style={styles.errorText}>{passwordError}</Text> : null}
       </View>
 
       {/* Forgot Password Button */}
       <TouchableOpacity
         style={styles.forgotPasswordButton}
-        onPress={() => setModalVisible(true)}
+        onPress={navigateToResetPassword}
         disabled={isLoading}
       >
         <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
@@ -216,18 +301,10 @@ export default function LoginScreen() {
 
       <View style={styles.signupContainer}>
         <Text style={styles.signupText}>Don't have an account? </Text>
-        <TouchableOpacity onPress={() => navigation.navigate('Signup')} disabled={isLoading}>
+        <TouchableOpacity onPress={() => navigation.navigate('Signup')}>
           <Text style={styles.signupLink}>Sign Up</Text>
         </TouchableOpacity>
       </View>
-
-      <TouchableOpacity
-        style={styles.skipButton}
-        onPress={() => navigation.navigate('Home')}
-        disabled={isLoading}
-      >
-        <Text style={styles.skipButtonText}>Skip Login</Text>
-      </TouchableOpacity>
 
       <Text style={styles.footerText}>
         Scale uses cookies for analytics personalized content and ads. By using Scale's services
@@ -281,6 +358,29 @@ export default function LoginScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Error Modal */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={errorModalVisible}
+        onRequestClose={() => setErrorModalVisible(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Login Failed</Text>
+            <Text style={styles.modalSubtitle}>
+              {errorMessage}
+            </Text>
+            <TouchableOpacity
+              style={styles.modalButtonSend}
+              onPress={() => setErrorModalVisible(false)}
+            >
+              <Text style={styles.modalButtonText}>OK</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -314,6 +414,15 @@ const styles = StyleSheet.create({
     padding: 12,
     color: '#fff',
     fontSize: 16,
+  },
+  inputError: {
+    borderColor: '#ff4444',
+    borderWidth: 1,
+  },
+  errorText: {
+    color: '#ff4444',
+    fontSize: 12,
+    marginTop: 5,
   },
   passwordInputWrapper: {
     flexDirection: 'row',
@@ -380,15 +489,6 @@ const styles = StyleSheet.create({
   signupLink: {
     color: '#4caf50',
     fontSize: 14,
-    fontWeight: 'bold',
-  },
-  skipButton: {
-    marginTop: 20,
-    alignItems: 'center',
-  },
-  skipButtonText: {
-    color: '#4caf50',
-    fontSize: 16,
     fontWeight: 'bold',
   },
   footerText: {

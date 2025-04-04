@@ -45,31 +45,155 @@ export default function FindStudyScreen() {
   const [publicResearch, setPublicResearch] = useState<PublicResearch[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [searchResults, setSearchResults] = useState<PublicResearch[]>([]);
+
+  const performSemanticSearch = async (query: string) => {
+    if (!query.trim()) {
+      await fetchPublicResearch();
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const searchTerms = query.toLowerCase().split(' ');
+      const relatedTerms: { [key: string]: string[] } = {
+        // Health & Medicine
+        'health': ['medical', 'wellness', 'disease', 'treatment', 'therapy', 'care', 'hospital', 'doctor', 'patient', 'medicine', 'pharmacy', 'diagnosis'],
+        'neuron': ['brain', 'nervous system', 'synapse', 'cognitive', 'mental health', 'psychology', 'neurology', 'neuroscience', 'brain function'],
+        'disease': ['illness', 'condition', 'symptoms', 'diagnosis', 'treatment', 'cure', 'prevention', 'healthcare'],
+        
+        // Technology & Computing
+        'ai': ['artificial intelligence', 'machine learning', 'neural network', 'deep learning', 'automation', 'robotics', 'computer vision', 'natural language processing'],
+        'tech': ['technology', 'innovation', 'digital', 'software', 'hardware', 'computing', 'internet', 'cybersecurity'],
+        'data': ['information', 'analysis', 'statistics', 'database', 'processing', 'big data', 'data science', 'analytics', 'visualization'],
+        
+        // Business & Finance
+        'business': ['company', 'enterprise', 'management', 'strategy', 'market', 'industry', 'commerce', 'trade', 'economics'],
+        'finance': ['banking', 'investment', 'stock market', 'trading', 'financial', 'money', 'capital', 'assets', 'portfolio'],
+        'market': ['economy', 'trading', 'stocks', 'shares', 'investment', 'financial markets', 'trading floor', 'market analysis'],
+        
+        // Science & Research
+        'quantum': ['physics', 'mechanics', 'entanglement', 'superposition', 'atomic', 'particle', 'quantum computing', 'quantum mechanics'],
+        'research': ['study', 'investigation', 'analysis', 'experiment', 'scientific method', 'hypothesis', 'theory', 'discovery'],
+        'science': ['scientific', 'research', 'experiment', 'laboratory', 'discovery', 'innovation', 'technology', 'engineering'],
+        
+        // Education & Learning
+        'education': ['learning', 'teaching', 'school', 'university', 'academic', 'curriculum', 'student', 'knowledge', 'training'],
+        'learning': ['education', 'training', 'skill development', 'knowledge acquisition', 'teaching', 'instruction', 'pedagogy'],
+        
+        // Environment & Sustainability
+        'environment': ['climate', 'sustainability', 'ecology', 'conservation', 'green', 'renewable', 'pollution', 'climate change'],
+        'climate': ['weather', 'temperature', 'global warming', 'climate change', 'environment', 'atmosphere', 'greenhouse'],
+        
+        // Social Sciences
+        'society': ['community', 'social', 'culture', 'population', 'demographics', 'social behavior', 'human behavior'],
+        'psychology': ['mental', 'behavior', 'cognitive', 'emotional', 'psychological', 'mental health', 'therapy', 'counseling'],
+        
+        // Engineering
+        'engineering': ['design', 'construction', 'mechanical', 'electrical', 'civil', 'aerospace', 'industrial', 'systems'],
+        'robotics': ['automation', 'mechanical', 'artificial intelligence', 'machine learning', 'control systems', 'automation'],
+        
+        // Agriculture & Food
+        'agriculture': ['farming', 'crops', 'food production', 'sustainable farming', 'agricultural technology', 'food security'],
+        'food': ['nutrition', 'diet', 'agriculture', 'food production', 'food security', 'sustainable food', 'food science']
+      };
+
+      // First, search in research_results_new
+      const { data: resultsData, error: resultsError } = await supabase
+        .from('research_results_new')
+        .select('research_id, result');
+
+      if (resultsError) throw resultsError;
+
+      // Filter results based on semantic search
+      const matchingResults = resultsData.filter(item => {
+        const content = item.result.toLowerCase();
+        
+        // Check for direct matches
+        const hasDirectMatch = searchTerms.some(term => content.includes(term));
+        if (hasDirectMatch) return true;
+
+        // Check for semantic matches
+        const hasSemanticMatch = searchTerms.some(term => {
+          const relatedWords = relatedTerms[term] || [];
+          return relatedWords.some(relatedTerm => content.includes(relatedTerm));
+        });
+
+        return hasSemanticMatch;
+      });
+
+      // Get the research_ids from matching results
+      const matchingResearchIds = matchingResults.map(item => item.research_id);
+
+      // Then, get the public research details
+      const { data: publicData, error: publicError } = await supabase
+        .from('public_research_page')
+        .select('*')
+        .in('research_id', matchingResearchIds)
+        .eq('is_public', true);
+
+      if (publicError) throw publicError;
+
+      // Combine the data
+      const transformedData = publicData.map(item => {
+        const result = matchingResults.find(r => r.research_id === item.research_id);
+        return {
+          research_id: item.research_id,
+          query: item.query,
+          result: result?.result || 'Click to view full research',
+          created_at: item.created_at,
+        };
+      });
+
+      setPublicResearch(transformedData);
+      setSearchResults(transformedData);
+    } catch (error) {
+      console.error('Error performing semantic search:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const fetchPublicResearch = async () => {
     try {
       setLoading(true);
-      const { data, error } = await supabase
+      const { data: publicData, error: publicError } = await supabase
         .from('public_research_page')
         .select(`
           id,
           research_id,
           query,
           created_at,
-          status
+          status,
+          is_public
         `)
+        .eq('is_public', true)
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (publicError) throw publicError;
 
-      const transformedData = data.map(item => ({
-        research_id: item.research_id,
-        query: item.query,
-        result: 'Click to view full research',
-        created_at: item.created_at,
-      }));
+      // Get the research results for public research
+      const researchIds = publicData.map(item => item.research_id);
+      const { data: resultsData, error: resultsError } = await supabase
+        .from('research_results_new')
+        .select('research_id, result')
+        .in('research_id', researchIds);
+
+      if (resultsError) throw resultsError;
+
+      // Combine the data
+      const transformedData = publicData.map(item => {
+        const result = resultsData.find(r => r.research_id === item.research_id);
+        return {
+          research_id: item.research_id,
+          query: item.query,
+          result: result?.result || 'Click to view full research',
+          created_at: item.created_at,
+        };
+      });
 
       setPublicResearch(transformedData);
+      setSearchResults(transformedData);
     } catch (error) {
       console.error('Error fetching public research:', error);
     } finally {
@@ -82,24 +206,29 @@ export default function FindStudyScreen() {
     fetchPublicResearch();
   }, []);
 
+  // Update search when query changes
+  useEffect(() => {
+    const debounceTimer = setTimeout(() => {
+      performSemanticSearch(searchQuery);
+    }, 300); // Debounce for 300ms
+
+    return () => clearTimeout(debounceTimer);
+  }, [searchQuery]);
+
   const onRefresh = () => {
     setRefreshing(true);
     fetchPublicResearch();
   };
 
-  const filteredResearch = publicResearch.filter(research =>
-    research.query.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
   const renderResearchItem = ({ item }: { item: PublicResearch }) => (
     <MotiView
-      from={{ opacity: 0, translateY: 10 }}
-      animate={{ opacity: 1, translateY: 0 }}
-      transition={{ type: 'timing', duration: 300 }}
+      from={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ delay: 100 }}
     >
       <TouchableOpacity
         style={[styles.researchCard, { backgroundColor: theme.card }]}
-        onPress={() => navigation.navigate('ResearchResult', { researchId: item.research_id })}
+        onPress={() => navigation.navigate('ResearchResultScreen', { researchId: item.research_id })}
       >
         <View style={styles.researchHeader}>
           <Text style={[styles.researchTitle, { color: theme.text }]} numberOfLines={2}>
@@ -114,7 +243,10 @@ export default function FindStudyScreen() {
         </Text>
         <View style={styles.researchFooter}>
           <Text style={[styles.researchCitations, { color: theme.accent }]}>127 citations</Text>
-          <TouchableOpacity style={styles.viewDetailsButton}>
+          <TouchableOpacity 
+            style={styles.viewDetailsButton}
+            onPress={() => navigation.navigate('ResearchResultScreen', { researchId: item.research_id })}
+          >
             <Text style={styles.viewDetailsText}>View Details</Text>
           </TouchableOpacity>
         </View>
@@ -151,7 +283,7 @@ export default function FindStudyScreen() {
             />
           </View>
           <View style={styles.filterContainer}>
-            {['All', 'Quantum', 'Neuroscience'].map(filter => (
+            {['All', 'Quantum', 'Neuroscience', 'Healthcare', 'AI'].map(filter => (
               <TouchableOpacity
                 key={filter}
                 style={[
@@ -178,7 +310,7 @@ export default function FindStudyScreen() {
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={theme.accent} />
         </View>
-      ) : filteredResearch.length === 0 ? (
+      ) : searchResults.length === 0 ? (
         <View style={styles.emptyContainer}>
           <MaterialIcons name="search-off" size={64} color={theme.secondaryText} />
           <Text style={[styles.emptyText, { color: theme.secondaryText }]}>
@@ -187,7 +319,7 @@ export default function FindStudyScreen() {
         </View>
       ) : (
         <FlatList
-          data={filteredResearch}
+          data={searchResults}
           renderItem={renderResearchItem}
           keyExtractor={item => item.research_id}
           contentContainerStyle={styles.listContainer}

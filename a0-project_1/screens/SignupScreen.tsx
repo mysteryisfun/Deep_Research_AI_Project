@@ -110,10 +110,45 @@ const SignupScreen = () => {
         throw profileError;
       }
 
+<<<<<<< Updated upstream
       toast.success('Account created successfully!');
       
       // Navigate to Login screen
       navigation.navigate('Login');
+=======
+      // Create user record in the database
+      const { error: createUserError } = await supabase
+        .from('users')
+        .insert([
+          {
+            id: authData.user.id,
+            email: trimmedEmail,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            password_updated_at: new Date().toISOString()
+          }
+        ]);
+
+      if (createUserError) {
+        console.error('Error creating user record:', createUserError);
+        // Clean up auth user if database insert fails
+        await supabase.auth.signOut();
+        toast.error('Failed to create user account. Please try again.');
+        setIsSigningUp(false);
+        return;
+      }
+
+      // Store the authenticated user ID in the global context
+      await setUserId(authData.user.id);
+      console.log(`Signup: Stored user ID ${authData.user.id} in global context`);
+
+      // Show success message and navigate to Home
+      toast.success('Account created successfully! Please check your email to verify your account.');
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Home' }],
+      });
+>>>>>>> Stashed changes
     } catch (error: any) {
       console.error('Signup error:', error);
       if (!emailError && !passwordError) {

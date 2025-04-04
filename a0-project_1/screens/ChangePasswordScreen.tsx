@@ -19,10 +19,13 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { MotiView } from 'moti';
 import { toast } from 'sonner-native';
+import { supabase } from '../context/supabase';
+import { useAuth } from '../context/AuthContext';
 
 export default function ChangePasswordScreen() {
   const navigation = useNavigation();
   const { theme, isDarkMode } = useTheme();
+  const { user } = useAuth();
   
   // Password state
   const [currentPassword, setCurrentPassword] = useState('');
@@ -37,7 +40,7 @@ export default function ChangePasswordScreen() {
   const [isLoading, setIsLoading] = useState(false);
   
   // Password validation
-  const isValidPassword = (password) => {
+  const isValidPassword = (password: string): boolean => {
     // At least 8 characters
     if (password.length < 8) return false;
     
@@ -73,6 +76,12 @@ export default function ChangePasswordScreen() {
     // Reset error
     setError('');
     
+    // Check if user is logged in
+    if (!user?.email) {
+      setError('You must be logged in to change your password');
+      return;
+    }
+    
     // Validate fields
     if (!currentPassword) {
       setError('Current password is required');
@@ -98,15 +107,48 @@ export default function ChangePasswordScreen() {
     setIsLoading(true);
     
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
+      // First verify the current password
+      const { data, error: signInError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: currentPassword
+      });
+
+      if (signInError || !data.user) {
+        setError('Current password is incorrect');
+        setIsLoading(false);
+        return;
+      }
+
+      // If current password is correct, update to new password
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: newPassword
+      });
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      // Update the user's password in the database to ensure consistency
+      const { error: dbUpdateError } = await supabase
+        .from('users')
+        .update({ 
+          updated_at: new Date().toISOString(),
+          password_updated_at: new Date().toISOString()
+        })
+        .eq('id', user.id);
+
+      if (dbUpdateError) {
+        console.error('Error updating user record:', dbUpdateError);
+        // Continue anyway as the password was updated in auth
+      }
+
       // Success notification
       toast.success('Password changed successfully');
       
       // Navigate back to profile screen
       navigation.goBack();
     } catch (error) {
+      console.error('Error changing password:', error);
       setError('Failed to change password. Please try again.');
     } finally {
       setIsLoading(false);
@@ -154,7 +196,11 @@ export default function ChangePasswordScreen() {
           <MotiView
             from={{ opacity: 0, translateY: 20 }}
             animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'timing', duration: 600 }}
+            transition={{
+              duration: 600,
+              delay: 0,
+              easing: (value) => value
+            }}
             style={[styles.formContainer, { backgroundColor: theme.card }]}
           >
             <MaterialIcons 
