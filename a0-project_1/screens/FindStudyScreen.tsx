@@ -35,7 +35,55 @@ interface PublicResearch {
   query: string;
   result: string;
   created_at: string;
+  relevance_score?: number;
+  match_details?: string[];
 }
+
+interface RelatedTermsType {
+  [key: string]: string[];
+}
+
+const relatedTerms: RelatedTermsType = {
+  // Health & Medicine
+  'health': ['medical', 'wellness', 'disease', 'treatment', 'therapy', 'care', 'hospital', 'doctor', 'patient', 'medicine', 'pharmacy', 'diagnosis'],
+  'neuron': ['brain', 'nervous system', 'synapse', 'cognitive', 'mental health', 'psychology', 'neurology', 'neuroscience', 'brain function'],
+  'disease': ['illness', 'condition', 'symptoms', 'diagnosis', 'treatment', 'cure', 'prevention', 'healthcare'],
+  
+  // Technology & Computing
+  'ai': ['artificial intelligence', 'machine learning', 'neural network', 'deep learning', 'automation', 'robotics', 'computer vision', 'natural language processing'],
+  'tech': ['technology', 'innovation', 'digital', 'software', 'hardware', 'computing', 'internet', 'cybersecurity'],
+  'data': ['information', 'analysis', 'statistics', 'database', 'processing', 'big data', 'data science', 'analytics', 'visualization'],
+  
+  // Business & Finance
+  'business': ['company', 'enterprise', 'management', 'strategy', 'market', 'industry', 'commerce', 'trade', 'economics'],
+  'finance': ['banking', 'investment', 'stock market', 'trading', 'financial', 'money', 'capital', 'assets', 'portfolio'],
+  'market': ['economy', 'trading', 'stocks', 'shares', 'investment', 'financial markets', 'trading floor', 'market analysis'],
+  
+  // Science & Research
+  'quantum': ['physics', 'mechanics', 'entanglement', 'superposition', 'atomic', 'particle', 'quantum computing', 'quantum mechanics'],
+  'research': ['study', 'investigation', 'analysis', 'experiment', 'scientific method', 'hypothesis', 'theory', 'discovery'],
+  'science': ['scientific', 'research', 'experiment', 'laboratory', 'discovery', 'innovation', 'technology', 'engineering'],
+  
+  // Education & Learning
+  'education': ['learning', 'teaching', 'school', 'university', 'academic', 'curriculum', 'student', 'knowledge', 'training'],
+  'learning': ['education', 'training', 'skill development', 'knowledge acquisition', 'teaching', 'instruction', 'pedagogy'],
+  
+  // Environment & Sustainability
+  'environment': ['climate', 'sustainability', 'ecology', 'conservation', 'green', 'renewable', 'pollution', 'climate change'],
+  'climate': ['weather', 'temperature', 'global warming', 'climate change', 'environment', 'atmosphere', 'greenhouse'],
+  
+  // Social Sciences
+  'society': ['community', 'social', 'culture', 'population', 'demographics', 'social behavior', 'human behavior'],
+  'psychology': ['mental', 'behavior', 'cognitive', 'emotional', 'psychological', 'mental health', 'therapy', 'counseling'],
+  
+  // Engineering
+  'engineering': ['design', 'construction', 'mechanical', 'electrical', 'civil', 'aerospace', 'industrial', 'systems'],
+  'robotics': ['automation', 'mechanical', 'artificial intelligence', 'machine learning', 'control systems', 'automation'],
+  
+  // Agriculture & Food
+  'agriculture': ['farming', 'crops', 'food production', 'sustainable farming', 'agricultural technology', 'food security'],
+  'food': ['nutrition', 'diet', 'agriculture', 'food production', 'food security', 'sustainable food', 'food science']
+};
 
 export default function FindStudyScreen() {
   const navigation = useNavigation<NavigationProp>();
@@ -55,48 +103,10 @@ export default function FindStudyScreen() {
 
     try {
       setLoading(true);
-      const searchTerms = query.toLowerCase().split(' ');
-      const relatedTerms: { [key: string]: string[] } = {
-        // Health & Medicine
-        'health': ['medical', 'wellness', 'disease', 'treatment', 'therapy', 'care', 'hospital', 'doctor', 'patient', 'medicine', 'pharmacy', 'diagnosis'],
-        'neuron': ['brain', 'nervous system', 'synapse', 'cognitive', 'mental health', 'psychology', 'neurology', 'neuroscience', 'brain function'],
-        'disease': ['illness', 'condition', 'symptoms', 'diagnosis', 'treatment', 'cure', 'prevention', 'healthcare'],
-        
-        // Technology & Computing
-        'ai': ['artificial intelligence', 'machine learning', 'neural network', 'deep learning', 'automation', 'robotics', 'computer vision', 'natural language processing'],
-        'tech': ['technology', 'innovation', 'digital', 'software', 'hardware', 'computing', 'internet', 'cybersecurity'],
-        'data': ['information', 'analysis', 'statistics', 'database', 'processing', 'big data', 'data science', 'analytics', 'visualization'],
-        
-        // Business & Finance
-        'business': ['company', 'enterprise', 'management', 'strategy', 'market', 'industry', 'commerce', 'trade', 'economics'],
-        'finance': ['banking', 'investment', 'stock market', 'trading', 'financial', 'money', 'capital', 'assets', 'portfolio'],
-        'market': ['economy', 'trading', 'stocks', 'shares', 'investment', 'financial markets', 'trading floor', 'market analysis'],
-        
-        // Science & Research
-        'quantum': ['physics', 'mechanics', 'entanglement', 'superposition', 'atomic', 'particle', 'quantum computing', 'quantum mechanics'],
-        'research': ['study', 'investigation', 'analysis', 'experiment', 'scientific method', 'hypothesis', 'theory', 'discovery'],
-        'science': ['scientific', 'research', 'experiment', 'laboratory', 'discovery', 'innovation', 'technology', 'engineering'],
-        
-        // Education & Learning
-        'education': ['learning', 'teaching', 'school', 'university', 'academic', 'curriculum', 'student', 'knowledge', 'training'],
-        'learning': ['education', 'training', 'skill development', 'knowledge acquisition', 'teaching', 'instruction', 'pedagogy'],
-        
-        // Environment & Sustainability
-        'environment': ['climate', 'sustainability', 'ecology', 'conservation', 'green', 'renewable', 'pollution', 'climate change'],
-        'climate': ['weather', 'temperature', 'global warming', 'climate change', 'environment', 'atmosphere', 'greenhouse'],
-        
-        // Social Sciences
-        'society': ['community', 'social', 'culture', 'population', 'demographics', 'social behavior', 'human behavior'],
-        'psychology': ['mental', 'behavior', 'cognitive', 'emotional', 'psychological', 'mental health', 'therapy', 'counseling'],
-        
-        // Engineering
-        'engineering': ['design', 'construction', 'mechanical', 'electrical', 'civil', 'aerospace', 'industrial', 'systems'],
-        'robotics': ['automation', 'mechanical', 'artificial intelligence', 'machine learning', 'control systems', 'automation'],
-        
-        // Agriculture & Food
-        'agriculture': ['farming', 'crops', 'food production', 'sustainable farming', 'agricultural technology', 'food security'],
-        'food': ['nutrition', 'diet', 'agriculture', 'food production', 'food security', 'sustainable food', 'food science']
-      };
+      // Split search terms and remove empty strings
+      const searchTerms = query.toLowerCase()
+        .split(' ')
+        .filter(term => term.trim().length > 0);
 
       // First, search in research_results_new
       const { data: resultsData, error: resultsError } = await supabase
@@ -105,27 +115,74 @@ export default function FindStudyScreen() {
 
       if (resultsError) throw resultsError;
 
-      // Filter results based on semantic search
-      const matchingResults = resultsData.filter(item => {
+      // Enhanced search with relevance scoring
+      const scoredResults = resultsData.map(item => {
         const content = item.result.toLowerCase();
-        
-        // Check for direct matches
-        const hasDirectMatch = searchTerms.some(term => content.includes(term));
-        if (hasDirectMatch) return true;
+        let score = 0;
+        let matchDetails = new Set<string>();
 
-        // Check for semantic matches
-        const hasSemanticMatch = searchTerms.some(term => {
+        // Process each search term
+        searchTerms.forEach(term => {
+          // Direct match in content (highest score)
+          if (content.includes(term)) {
+            score += 10;
+            matchDetails.add(`Direct match: ${term}`);
+          }
+
+          // Check for semantic matches
           const relatedWords = relatedTerms[term] || [];
-          return relatedWords.some(relatedTerm => content.includes(relatedTerm));
+          relatedWords.forEach(relatedTerm => {
+            const relatedLower = relatedTerm.toLowerCase();
+            if (content.includes(relatedLower)) {
+              score += 5;
+              matchDetails.add(`Related to "${term}": ${relatedTerm}`);
+            }
+          });
+
+          // Partial word matches (like Google's partial matching)
+          if (term.length > 3) {  // Only for terms longer than 3 characters
+            Object.entries(relatedTerms).forEach(([key, values]) => {
+              // Check if the term is part of any key or value
+              if (key.includes(term)) {
+                score += 3;
+                matchDetails.add(`Partial match in category: ${key}`);
+              }
+              values.forEach(value => {
+                if (value.toLowerCase().includes(term)) {
+                  score += 2;
+                  matchDetails.add(`Partial match in related term: ${value}`);
+                }
+              });
+            });
+          }
+
+          // Context relevance check
+          const contextWords = content.split(/\W+/);
+          const termContext = contextWords.filter((word: string) => 
+            word.length > 3 && (word.includes(term) || term.includes(word))
+          );
+          if (termContext.length > 0) {
+            score += termContext.length;
+            matchDetails.add(`Contextual matches: ${termContext.length} related words`);
+          }
         });
 
-        return hasSemanticMatch;
+        return {
+          ...item,
+          score,
+          matchDetails: Array.from(matchDetails),
+        };
       });
+
+      // Filter and sort results by score
+      const matchingResults = scoredResults
+        .filter(item => item.score > 0)
+        .sort((a, b) => b.score - a.score);
 
       // Get the research_ids from matching results
       const matchingResearchIds = matchingResults.map(item => item.research_id);
 
-      // Then, get the public research details
+      // Get the public research details
       const { data: publicData, error: publicError } = await supabase
         .from('public_research_page')
         .select('*')
@@ -134,16 +191,27 @@ export default function FindStudyScreen() {
 
       if (publicError) throw publicError;
 
-      // Combine the data
+      // Combine the data with relevance information
       const transformedData = publicData.map(item => {
-        const result = matchingResults.find(r => r.research_id === item.research_id);
+        const matchResult = matchingResults.find(r => r.research_id === item.research_id);
+        const resultPreview = matchResult?.result || 'Click to view full research';
+        
+        // Create a preview that highlights matching terms
+        let highlightedPreview = resultPreview;
+        searchTerms.forEach(term => {
+          const regex = new RegExp(term, 'gi');
+          highlightedPreview = highlightedPreview.replace(regex, `**${term}**`);
+        });
+
         return {
           research_id: item.research_id,
           query: item.query,
-          result: result?.result || 'Click to view full research',
+          result: highlightedPreview,
           created_at: item.created_at,
+          relevance_score: matchResult?.score || 0,
+          match_details: matchResult?.matchDetails || []
         };
-      });
+      }).sort((a, b) => b.relevance_score - a.relevance_score);
 
       setPublicResearch(transformedData);
       setSearchResults(transformedData);
@@ -242,7 +310,11 @@ export default function FindStudyScreen() {
           {item.result}
         </Text>
         <View style={styles.researchFooter}>
-          <Text style={[styles.researchCitations, { color: theme.accent }]}>127 citations</Text>
+          <View style={styles.relevanceContainer}>
+            <Text style={[styles.relevanceScore, { color: theme.accent }]}>
+              Relevance: {Math.round((item.relevance_score || 0) * 10) / 10}
+            </Text>
+          </View>
           <TouchableOpacity 
             style={styles.viewDetailsButton}
             onPress={() => navigation.navigate('ResearchResultScreen', { researchId: item.research_id })}
@@ -445,7 +517,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  researchCitations: {
+  relevanceContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  relevanceScore: {
     fontSize: 14,
     fontWeight: '500',
   },

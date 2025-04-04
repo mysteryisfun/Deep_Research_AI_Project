@@ -46,8 +46,18 @@ import { recordSessionStart } from './utils/userStorage';
 import { clearExpiredCache } from './utils/cacheManager';
 import { supabase } from './utils/supabase';
 import { ActivityIndicator, View } from 'react-native';
+<<<<<<< Updated upstream
 import { AuthProvider } from './context/AuthContext';
 import ResetPasswordScreen from './screens/ResetPasswordScreen';
+=======
+import * as Notifications from 'expo-notifications';
+import { registerForPushNotificationsAsync, setupNotificationHandler } from './utils/notificationService';
+import { linking } from './navigation/linking';
+import ResetPasswordScreen from "./screens/ResetPasswordScreen";
+import HelpCenterScreen from "./screens/HelpCenterScreen";
+import PrivacyPolicyScreen from "./screens/PrivacyPolicyScreen";
+import TermsOfServiceScreen from "./screens/TermsOfServiceScreen";
+>>>>>>> Stashed changes
 
 // Configure global error handling for unhandled JS errors
 if (!__DEV__) {
@@ -137,6 +147,12 @@ function RootStack({ initialRouteName }: { initialRouteName: string }) {
       <Stack.Screen name="TestActiveQueueScreen" component={TestActiveQueueScreen} />
       <Stack.Screen name="SimpleQueueTest" component={SimpleQueueTestScreen} />
       <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} />
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
+      <Stack.Screen name="HelpCenter" component={HelpCenterScreen} />
+      <Stack.Screen name="PrivacyPolicy" component={PrivacyPolicyScreen} />
+      <Stack.Screen name="TermsOfService" component={TermsOfServiceScreen} />
 >>>>>>> Stashed changes
     </Stack.Navigator>
   );
@@ -287,6 +303,7 @@ export default function App() {
       <SafeAreaProvider>
         <ThemeProvider>
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
           <ResearchProvider>
             <Toaster />
             <NavigationContainer>
@@ -308,6 +325,22 @@ export default function App() {
               </ResearchProvider>
             </UserProvider>
           </AuthProvider>
+>>>>>>> Stashed changes
+=======
+          <UserProvider>
+            <ResearchProvider>
+              <Toaster />
+              <NavigationContainer
+                ref={navigationRef}
+                onStateChange={(state) => {
+                  // Handle navigation state changes if needed
+                }}
+                linking={linking}
+              >
+                <RootStack initialRouteName={initialRouteName} />
+              </NavigationContainer>
+            </ResearchProvider>
+          </UserProvider>
 >>>>>>> Stashed changes
         </ThemeProvider>
       </SafeAreaProvider>

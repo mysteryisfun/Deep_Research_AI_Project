@@ -18,6 +18,7 @@ type RootStackParamList = {
   Login: undefined;
   Signup: undefined;
   Home: undefined;
+  ResetPassword: { token: string };
 };
 
 type LoginScreenNavigationProp = NativeStackNavigationProp<RootStackParamList, 'Login'>;
@@ -32,6 +33,7 @@ const LoginScreen = () => {
   const [loading, setLoading] = useState(false);
   const [emailError, setEmailError] = useState('');
   const [passwordError, setPasswordError] = useState('');
+<<<<<<< Updated upstream
 
   const handleLogin = async () => {
     // Reset error states
@@ -40,6 +42,35 @@ const LoginScreen = () => {
 
     if (!email || !password) {
       Alert.alert('Error', 'Please fill in all fields');
+=======
+  const [showSignUpModal, setShowSignUpModal] = useState(false);
+  const [fullName, setFullName] = useState('');
+  const [signUpEmail, setSignUpEmail] = useState('');
+  const [signUpPassword, setSignUpPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [isSigningUp, setIsSigningUp] = useState(false);
+  const [scaleAnim] = useState(new Animated.Value(1));
+  const { setUserId } = useUser();
+  const [errorModalVisible, setErrorModalVisible] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
+
+  const showError = (message: string) => {
+    setErrorMessage(message);
+    setErrorModalVisible(true);
+    if (Platform.OS !== 'web') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    }
+  };
+
+  const handleLogin = async () => {
+    setEmailError('');
+    setPasswordError('');
+    
+    if (!email || !password) {
+      if (!email) setEmailError('Email is required');
+      if (!password) setPasswordError('Password is required');
+      showError('Please enter both email and password');
+>>>>>>> Stashed changes
       return;
     }
 
@@ -53,6 +84,7 @@ const LoginScreen = () => {
         .eq('email', email.toLowerCase())
         .single();
 
+<<<<<<< Updated upstream
       if (userError || !userData) {
         setEmailError('Email not found');
         return;
@@ -81,6 +113,19 @@ const LoginScreen = () => {
           .eq('email', email.toLowerCase());
 
         // Navigate to Home screen on successful login
+=======
+      if (!existingUser) {
+        setEmailError('Email not found');
+        showError('Account not found. Please sign up first.');
+        setLoading(false);
+        return;
+      }
+
+      // Try to get the user's session first
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (session) {
+>>>>>>> Stashed changes
         navigation.reset({
           index: 0,
           routes: [{ name: 'Home' }],
@@ -89,11 +134,30 @@ const LoginScreen = () => {
 <<<<<<< Updated upstream
 =======
 
+<<<<<<< Updated upstream
       // Verify the user ID matches the one in the database
       if (data.user.id !== existingUser.id) {
         console.error('User ID mismatch');
         await supabase.auth.signOut();
         toast.error('Authentication error. Please try again.');
+=======
+      // Attempt to sign in
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: trimmedEmail,
+        password
+      });
+
+      if (error) {
+        console.error('Login error:', error);
+        setPasswordError('Incorrect password');
+        showError('Incorrect password. Please try again.');
+        setLoading(false);
+        return;
+      }
+
+      if (!data?.user) {
+        showError('Login failed. Please try again.');
+>>>>>>> Stashed changes
         setLoading(false);
         return;
       }
@@ -157,32 +221,302 @@ const LoginScreen = () => {
       });
 >>>>>>> Stashed changes
     } catch (error: any) {
+<<<<<<< Updated upstream
       console.error('Login error:', error);
       Alert.alert(
         'Error',
         error.message || 'An error occurred during login. Please try again.'
       );
+=======
+      console.error('Login process error:', error);
+      showError('An error occurred during login. Please try again.');
+>>>>>>> Stashed changes
     } finally {
       setLoading(false);
     }
   };
 
-  const handleForgotPassword = () => {
-    // Simulate sending a reset password link
+  const handleForgotPassword = async () => {
     if (resetEmail.trim() === '') {
-      Alert.alert('Error', 'Please enter your email address.');
+      showError('Please enter your email address');
       return;
     }
 
-    // Simulate API call to send reset password link
-    Alert.alert(
-      'Reset Password',
-      `A reset password link has been sent to ${resetEmail}.`
-    );
-    setModalVisible(false);
-    setResetEmail('');
+    const trimmedEmail = resetEmail.toLowerCase().trim();
+    setLoading(true);
+
+    try {
+      // Check if user exists in database
+      const { data: existingUser, error: userCheckError } = await supabase
+        .from('users')
+        .select('*')
+        .eq('email', trimmedEmail)
+        .single();
+
+      if (!existingUser) {
+        showError('No account found with this email address');
+        setLoading(false);
+        return;
+      }
+
+      // Send password reset email through Supabase
+      const { error } = await supabase.auth.resetPasswordForEmail(trimmedEmail, {
+        redirectTo: `${process.env.EXPO_PUBLIC_APP_URL}/reset-password` // This will be replaced with your app's URL
+      });
+
+      if (error) {
+        console.error('Password reset error:', error);
+        showError('Failed to send reset instructions. Please try again.');
+      } else {
+        // Close the modal and show success message
+        setModalVisible(false);
+        setResetEmail('');
+        Alert.alert(
+          'Reset Instructions Sent',
+          'Please check your email for password reset instructions. The link will expire in 24 hours.',
+          [{ text: 'OK' }]
+        );
+      }
+    } catch (error) {
+      console.error('Password reset process error:', error);
+      showError('An error occurred. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
+  // Add password reset completion handler
+  const handlePasswordReset = async (newPassword: string, token: string) => {
+    try {
+      setLoading(true);
+
+      // Update password in Supabase Auth
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      // Show success message
+      Alert.alert(
+        'Password Updated',
+        'Your password has been successfully updated. Please login with your new password.',
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              // Navigate back to login
+              navigation.navigate('Login');
+            },
+          },
+        ]
+      );
+    } catch (error) {
+      console.error('Password update error:', error);
+      showError('Failed to update password. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+<<<<<<< Updated upstream
+=======
+  const handleSignUp = async () => {
+    if (!fullName || !signUpEmail || !signUpPassword || !confirmPassword) {
+      toast.error('Please fill in all required fields');
+      return;
+    }
+
+    if (signUpPassword !== confirmPassword) {
+      toast.error('Passwords do not match');
+      return;
+    }
+
+    if (signUpPassword.length < 6) {
+      toast.error('Password must be at least 6 characters long');
+      return;
+    }
+
+    setIsSigningUp(true);
+    const trimmedEmail = signUpEmail.toLowerCase().trim();
+    
+    try {
+      // First check if the user exists in auth
+      const { data: { user: existingAuthUser }, error: authCheckError } = await supabase.auth.getUser();
+      
+      if (existingAuthUser) {
+        await supabase.auth.signOut();
+      }
+
+      // Check if user exists in database
+      const { data: existingUser } = await supabase
+        .from('users')
+        .select('email')
+        .eq('email', trimmedEmail)
+        .single();
+
+      if (existingUser) {
+        toast.error('Email already registered');
+        setIsSigningUp(false);
+        return;
+      }
+
+      // Create auth user
+      const { data: authData, error: authError } = await supabase.auth.signUp({
+        email: trimmedEmail,
+        password: signUpPassword,
+        options: {
+          data: {
+            full_name: fullName
+          }
+        }
+      });
+
+      if (authError) {
+        console.error('Auth signup error:', authError);
+        toast.error(authError.message);
+        setIsSigningUp(false);
+        return;
+      }
+
+      if (!authData?.user) {
+        toast.error('Failed to create account');
+        setIsSigningUp(false);
+        return;
+      }
+
+      // Create user record
+      const { error: userError } = await supabase
+        .from('users')
+        .insert([
+          {
+            id: authData.user.id,
+            email: trimmedEmail,
+            username: trimmedEmail.split('@')[0],
+            full_name: fullName,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }
+        ]);
+
+      if (userError) {
+        console.error('User creation error:', userError);
+        await supabase.auth.signOut();
+        toast.error('Failed to create user record');
+        setIsSigningUp(false);
+        return;
+      }
+
+      // Create profile record
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .insert([
+          {
+            id: authData.user.id,
+            email: trimmedEmail,
+            username: trimmedEmail.split('@')[0],
+            avatar_url: null,
+            bio: null,
+            full_name: fullName,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            last_login: new Date().toISOString()
+          }
+        ]);
+
+      if (profileError) {
+        console.error('Profile creation error:', profileError);
+        await supabase.auth.signOut();
+        await supabase
+          .from('users')
+          .delete()
+          .eq('id', authData.user.id);
+        toast.error('Failed to create profile');
+        setIsSigningUp(false);
+        return;
+      }
+
+      // Reset form
+      setShowSignUpModal(false);
+      setFullName('');
+      setSignUpEmail('');
+      setSignUpPassword('');
+      setConfirmPassword('');
+      
+      // Show success message and navigate to Home
+      toast.success('Account created successfully!');
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Home' }],
+      });
+    } catch (error: any) {
+      console.error('Signup error:', error);
+      toast.error(error.message || 'Failed to create account');
+    } finally {
+      setIsSigningUp(false);
+    }
+  };
+  
+  const isValidSignUp = () => {
+    // Implement your validation logic here
+    return true; // Placeholder return, actual implementation needed
+  };
+
+  // Update the Forgot Password Modal JSX
+  const renderForgotPasswordModal = () => (
+    <Modal
+      animationType="slide"
+      transparent={true}
+      visible={modalVisible}
+      onRequestClose={() => setModalVisible(false)}
+    >
+      <View style={styles.modalContainer}>
+        <View style={styles.modalContent}>
+          <Text style={styles.modalTitle}>Reset Password</Text>
+          <Text style={styles.modalSubtitle}>
+            Enter your email address to receive a password reset link.
+          </Text>
+          <TextInput
+            style={styles.modalInput}
+            placeholder="Enter your email"
+            placeholderTextColor="#666"
+            value={resetEmail}
+            onChangeText={setResetEmail}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            editable={!loading}
+          />
+          <View style={styles.modalButtons}>
+            <TouchableOpacity
+              style={styles.modalButtonCancel}
+              onPress={() => {
+                setModalVisible(false);
+                setResetEmail('');
+              }}
+              disabled={loading}
+            >
+              <Text style={styles.modalButtonText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.modalButtonSend, loading && styles.disabledButton]}
+              onPress={handleForgotPassword}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Text style={styles.modalButtonText}>Send Reset Link</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+
+>>>>>>> Stashed changes
   return (
     <View style={styles.container}>
       <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
@@ -272,6 +606,7 @@ const LoginScreen = () => {
         <Text style={styles.skipButtonText}>Skip Login</Text>
       </TouchableOpacity>
 
+<<<<<<< Updated upstream
 =======
 >>>>>>> Stashed changes
       {/* Forgot Password Modal */}
@@ -312,6 +647,34 @@ const LoginScreen = () => {
               >
                 <Text style={styles.modalButtonText}>Send</Text>
               </TouchableOpacity>
+=======
+      {/* Replace the old Forgot Password Modal with the new one */}
+      {renderForgotPasswordModal()}
+
+      {/* Error Modal */}
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={errorModalVisible}
+        onRequestClose={() => setErrorModalVisible(false)}
+      >
+        <View style={styles.errorModalContainer}>
+          <View style={styles.errorModalContent}>
+            <View style={styles.errorIconContainer}>
+              <Ionicons name="alert-circle" size={40} color="#ff4444" />
+            </View>
+            <Text style={styles.errorModalTitle}>Login Error</Text>
+            <Text style={styles.errorModalMessage}>{errorMessage}</Text>
+            <TouchableOpacity
+              style={styles.errorModalButton}
+              onPress={() => setErrorModalVisible(false)}
+            >
+              <Text style={styles.errorModalButtonText}>OK</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+>>>>>>> Stashed changes
             </View>
           </View>
         </View>
@@ -468,6 +831,63 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     textAlign: 'center',
   },
+<<<<<<< Updated upstream
+=======
+  skipButton: {
+    marginTop: 20,
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  skipButtonText: {
+    color: '#4caf50',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  errorModalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+  },
+  errorModalContent: {
+    backgroundColor: '#1c1c1e',
+    borderRadius: 16,
+    padding: 24,
+    width: '85%',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ff4444',
+  },
+  errorIconContainer: {
+    marginBottom: 16,
+  },
+  errorModalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 12,
+  },
+  errorModalMessage: {
+    fontSize: 16,
+    color: '#fff',
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 22,
+  },
+  errorModalButton: {
+    backgroundColor: '#ff4444',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    minWidth: 120,
+  },
+  errorModalButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+>>>>>>> Stashed changes
 });
 
 export default LoginScreen;

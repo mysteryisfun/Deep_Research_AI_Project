@@ -653,7 +653,7 @@ export default function ProfileScreen() {
           
           <TouchableOpacity 
             style={[styles.supportRow, { borderBottomColor: theme.border }]}
-            onPress={() => toast.info('Help Center feature coming soon')}
+            onPress={() => navigation.navigate('HelpCenter')}
           >
             <View style={styles.supportIconContainer}>
               <MaterialIcons name="help-outline" size={22} color={theme.accent} />
@@ -664,7 +664,7 @@ export default function ProfileScreen() {
           
           <TouchableOpacity 
             style={[styles.supportRow, { borderBottomColor: theme.border }]}
-            onPress={() => toast.info('Privacy Policy will open in browser')}
+            onPress={() => navigation.navigate('PrivacyPolicy')}
           >
             <View style={styles.supportIconContainer}>
               <MaterialIcons name="security" size={22} color={theme.accent} />
@@ -675,7 +675,7 @@ export default function ProfileScreen() {
           
           <TouchableOpacity 
             style={styles.supportRow}
-            onPress={() => toast.info('Terms of Service will open in browser')}
+            onPress={() => navigation.navigate('TermsOfService')}
           >
             <View style={styles.supportIconContainer}>
               <MaterialIcons name="description" size={22} color={theme.accent} />

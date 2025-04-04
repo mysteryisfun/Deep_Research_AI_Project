@@ -19,8 +19,12 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { MotiView } from 'moti';
 import { toast } from 'sonner-native';
+<<<<<<< Updated upstream
 import { supabase } from '../context/supabase';
 import { useAuth } from '../context/AuthContext';
+=======
+import { supabase } from '../utils/supabase';
+>>>>>>> Stashed changes
 
 export default function ChangePasswordScreen() {
   const navigation = useNavigation();
@@ -107,6 +111,7 @@ export default function ChangePasswordScreen() {
     setIsLoading(true);
     
     try {
+<<<<<<< Updated upstream
       // First verify the current password
       const { data, error: signInError } = await supabase.auth.signInWithPassword({
         email: user.email,
@@ -114,12 +119,25 @@ export default function ChangePasswordScreen() {
       });
 
       if (signInError || !data.user) {
+=======
+      // First verify the current password by trying to sign in
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: (await supabase.auth.getUser()).data.user?.email || '',
+        password: currentPassword
+      });
+
+      if (signInError) {
+>>>>>>> Stashed changes
         setError('Current password is incorrect');
         setIsLoading(false);
         return;
       }
 
+<<<<<<< Updated upstream
       // If current password is correct, update to new password
+=======
+      // Update the password in Supabase
+>>>>>>> Stashed changes
       const { error: updateError } = await supabase.auth.updateUser({
         password: newPassword
       });
@@ -128,6 +146,7 @@ export default function ChangePasswordScreen() {
         throw updateError;
       }
 
+<<<<<<< Updated upstream
       // Update the user's password in the database to ensure consistency
       const { error: dbUpdateError } = await supabase
         .from('users')
@@ -142,13 +161,19 @@ export default function ChangePasswordScreen() {
         // Continue anyway as the password was updated in auth
       }
 
+=======
+>>>>>>> Stashed changes
       // Success notification
       toast.success('Password changed successfully');
       
       // Navigate back to profile screen
       navigation.goBack();
     } catch (error) {
+<<<<<<< Updated upstream
       console.error('Error changing password:', error);
+=======
+      console.error('Password change error:', error);
+>>>>>>> Stashed changes
       setError('Failed to change password. Please try again.');
     } finally {
       setIsLoading(false);
@@ -156,10 +181,27 @@ export default function ChangePasswordScreen() {
   };
   
   // Handle forgot password
-  const handleForgotPassword = () => {
-    // Navigate to forgot password screen (to be implemented)
-    // For now, just show an info toast
-    toast.info('Forgot password functionality will be available soon');
+  const handleForgotPassword = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user?.email) {
+        toast.error('Unable to find user email');
+        return;
+      }
+
+      const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
+        redirectTo: 'yourapp://reset-password'
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      toast.success('Password reset instructions sent to your email');
+    } catch (error) {
+      console.error('Forgot password error:', error);
+      toast.error('Failed to send reset instructions. Please try again.');
+    }
   };
 
   return (
@@ -196,11 +238,20 @@ export default function ChangePasswordScreen() {
           <MotiView
             from={{ opacity: 0, translateY: 20 }}
             animate={{ opacity: 1, translateY: 0 }}
+<<<<<<< Updated upstream
             transition={{
               duration: 600,
               delay: 0,
               easing: (value) => value
             }}
+=======
+            transition={{ 
+              type: 'timing',
+              duration: 600,
+              delay: 0,
+              repeatReverse: false
+            } as any}
+>>>>>>> Stashed changes
             style={[styles.formContainer, { backgroundColor: theme.card }]}
           >
             <MaterialIcons 
