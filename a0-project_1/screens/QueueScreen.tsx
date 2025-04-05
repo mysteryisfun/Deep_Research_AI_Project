@@ -23,11 +23,7 @@ import { useUser } from '../context/UserContext';
 import { supabase } from '../utils/supabase';
 import { 
   fetchActiveQueueWithCache, 
-  updateActiveQueueCache, 
-  clearActiveQueueCache,
-  fetchResearchResultsWithCache,
-  updateResearchResultsCache,
-  clearResearchResultsCache
+  clearResearchCache
 } from '../utils/researchService';
 
 // Define cosmic theme palette to match ResearchResultScreen
@@ -232,28 +228,28 @@ const ResearchCard = ({ item, index, onViewDetails }: ResearchCardProps) => {
             <View style={styles.infoRow}>
               <View style={styles.infoItem}>
                 <Feather name="clock" size={14} color={COSMIC_THEME.glacialTeal} style={styles.infoIcon} />
-                <Text style={styles.infoText}>
-                  <Text style={styles.infoLabel}>Started: </Text>
-                  {createdTime}
-                </Text>
+            <Text style={styles.infoText}>
+              <Text style={styles.infoLabel}>Started: </Text>
+              {createdTime}
+            </Text>
               </View>
             </View>
             
             <View style={styles.infoRow}>
               <View style={styles.infoItem}>
                 <Feather name="maximize" size={14} color={COSMIC_THEME.glacialTeal} style={styles.infoIcon} />
-                <Text style={styles.infoText}>
-                  <Text style={styles.infoLabel}>Breadth: </Text>
-                  {item.breadth}
-                </Text>
+            <Text style={styles.infoText}>
+              <Text style={styles.infoLabel}>Breadth: </Text>
+              {item.breadth}
+            </Text>
               </View>
               
               <View style={styles.infoItem}>
                 <Feather name="layers" size={14} color={COSMIC_THEME.glacialTeal} style={styles.infoIcon} />
-                <Text style={styles.infoText}>
-                  <Text style={styles.infoLabel}>Depth: </Text>
-                  {item.depth}
-                </Text>
+            <Text style={styles.infoText}>
+              <Text style={styles.infoLabel}>Depth: </Text>
+              {item.depth}
+            </Text>
               </View>
             </View>
           </View>
@@ -268,8 +264,8 @@ const ResearchCard = ({ item, index, onViewDetails }: ResearchCardProps) => {
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
             style={styles.viewButtonGradient}
-          >
-            <Text style={styles.viewButtonText}>View Progress</Text>
+        >
+          <Text style={styles.viewButtonText}>View Progress</Text>
             <MaterialIcons name="arrow-forward" size={16} color={COSMIC_THEME.glacialTeal} />
           </LinearGradient>
         </TouchableOpacity>
@@ -465,12 +461,37 @@ export default function QueueScreen() {
         setIsLoading(true);
       }
       
-      // Use caching to get items
+      // Use the new fetchActiveQueueWithCache function
       const items = await fetchActiveQueueWithCache(userId, options);
       setResearchItems(items || []);
       
-      // Fetch results separately
-      await fetchResearchResults();
+      // Check each item to see if results exist
+      if (items && items.length > 0) {
+        // Create a map to check for results by research_id
+        const resultsMap = {};
+        
+        // Query for results in a single batch to reduce API calls
+        const researchIds = items.map(item => item.research_id);
+        const { data: resultsData } = await supabase
+          .from('research_results_new')
+          .select('research_id')
+          .in('research_id', researchIds);
+          
+        // Mark which research items have results
+        if (resultsData && resultsData.length > 0) {
+          resultsData.forEach(result => {
+            resultsMap[result.research_id] = true;
+          });
+          
+          // Update the items with has_results flag
+          const updatedItems = items.map(item => ({
+            ...item,
+            has_results: !!resultsMap[item.research_id]
+          }));
+          
+          setResearchItems(updatedItems);
+        }
+      }
       
       setLastUpdate(new Date());
     } catch (error) {
@@ -485,10 +506,7 @@ export default function QueueScreen() {
   const handleRefresh = () => {
     setRefreshing(true);
     // Clear cache and force refresh on pull-to-refresh
-    Promise.all([
-      clearActiveQueueCache(userId || undefined),
-      clearResearchResultsCache(userId || undefined)
-    ])
+    clearResearchCache(userId || undefined)
       .then(() => loadResearchItems({ forceRefresh: true, background: false }))
       .catch(error => {
         console.error('Error during refresh:', error);
@@ -509,11 +527,11 @@ export default function QueueScreen() {
       style={styles.emptyContainer}
     >
       <View style={styles.emptyIconContainer}>
-        <MaterialCommunityIcons 
+      <MaterialCommunityIcons 
           name="clipboard-text-search-outline" 
-          size={80} 
+        size={80} 
           color={COSMIC_THEME.glacialTeal}
-        />
+      />
       </View>
       <Text style={styles.emptyTitle}>No Active Research</Text>
       <Text style={styles.emptyText}>
@@ -586,7 +604,7 @@ export default function QueueScreen() {
               <Animated.View style={styles.loadingIconContainer}>
                 <ActivityIndicator size="large" color={COSMIC_THEME.glacialTeal} />
               </Animated.View>
-              <Text style={styles.loadingText}>Loading research items...</Text>
+            <Text style={styles.loadingText}>Loading research items...</Text>
             </MotiView>
           </View>
         ) : researchItems.length > 0 ? (

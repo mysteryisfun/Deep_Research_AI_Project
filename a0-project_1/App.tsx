@@ -28,18 +28,12 @@ import FinancialAgentScreen from "./screens/FinancialAgentScreen";
 import PrivacySecurityScreen from "./screens/PrivacySecurityScreen";
 import LegalInfoScreen from "./screens/LegalInfoScreen";
 import HelpCenterScreen from "./screens/HelpCenterScreen";
-import TestN8nWebhook from "./TestN8nWebhook";
-import SimpleTestScreen from "./screens/SimpleTestScreen";
-import TestResearchResultScreen from "./screens/TestResearchResultScreen";
-import TestActiveQueueScreen from "./screens/TestActiveQueueScreen";
-import SimpleQueueTestScreen from "./screens/SimpleQueueTestScreen";
 import AppErrorBoundary from './components/AppErrorBoundary';
 import { ThemeProvider } from './context/ThemeContext';
 import { ResearchProvider } from './context/ResearchContext';
 import { handleGlobalError, errorHandler, ErrorCategory, ErrorSeverity } from './utils/errorHandler';
 import 'react-native-gesture-handler';
 import ResearchProgressScreen from "./screens/ResearchProgressScreen";
-import TestProgressScreen from "./screens/TestProgressScreen";
 import SignupScreen from "./screens/SignupScreen";
 import DevControlScreen from "./screens/DevControlScreen";
 import DevPasswordScreen from "./screens/DevPasswordScreen";
@@ -130,14 +124,6 @@ function RootStack({ initialRouteName }: { initialRouteName: string }) {
       <Stack.Screen name="FinancialAgentScreen" component={FinancialAgentScreen} />
       <Stack.Screen name="DevPasswordScreen" component={DevPasswordScreen} />
       <Stack.Screen name="DevControlScreen" component={DevControlScreen} />
-      
-      {/* Test screens are still accessible but not in main flow */}
-      <Stack.Screen name="TestN8nWebhook" component={TestN8nWebhook} />
-      <Stack.Screen name="TestProgressScreen" component={TestProgressScreen} />
-      <Stack.Screen name="SimpleTest" component={SimpleTestScreen} />
-      <Stack.Screen name="TestResearchResultScreen" component={TestResearchResultScreen} />
-      <Stack.Screen name="TestActiveQueueScreen" component={TestActiveQueueScreen} />
-      <Stack.Screen name="SimpleQueueTest" component={SimpleQueueTestScreen} />
     </Stack.Navigator>
   );
 }

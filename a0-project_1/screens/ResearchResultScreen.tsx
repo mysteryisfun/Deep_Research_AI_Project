@@ -27,7 +27,7 @@ import Markdown from 'react-native-markdown-display';
 import { useTheme } from '../context/ThemeContext';
 import { useResearch } from '../context/ResearchContext';
 import { supabase } from '../context/supabase';
-import { submitFeedback, checkFeedbackSubmitted } from '../utils/researchService';
+import { submitFeedback, checkFeedbackSubmitted, fetchResearchResultWithCache, fetchResearchByIdWithCache } from '../utils/researchService';
 import { LinearGradient } from 'expo-linear-gradient';
 
 // Define the cosmic theme palette
@@ -90,12 +90,12 @@ const StarRating: React.FC<StarRatingProps> = ({
               type: 'timing',
               duration: rating >= star ? 300 : 0,
             }}
-          >
-            <FontAwesome
-              name={rating >= star ? 'star' : 'star-o'}
-              size={size}
+        >
+          <FontAwesome
+            name={rating >= star ? 'star' : 'star-o'}
+            size={size}
               color={rating >= star ? color : 'rgba(224, 224, 224, 0.3)'}
-            />
+          />
           </MotiView>
         </TouchableOpacity>
       ))}
@@ -152,12 +152,8 @@ export default function ResearchResultScreen() {
       // We need to create a proper ResearchHistory object with all required fields
       if (researchId) {
         // Fetch the actual research data which will have all required fields
-        supabase
-          .from('research_history_new')
-          .select('*')
-          .eq('research_id', researchId)
-          .maybeSingle()
-          .then(({ data }) => {
+        fetchResearchByIdWithCache(researchId)
+          .then((data) => {
             if (data) {
               console.log('Found existing research data, updating context');
               setCurrentResearch(data);
@@ -287,12 +283,8 @@ export default function ResearchResultScreen() {
       hasAttemptedFetch.current = true;
       
       try {
-        // Try to fetch research data, but don't fail if not found
-        const { data: researchData } = await supabase
-          .from('research_history_new')
-          .select('*')
-          .eq('research_id', researchId)
-          .maybeSingle();
+        // Try to fetch research data using cache
+        const researchData = await fetchResearchByIdWithCache(researchId);
         
         // Set research data if we found it
         if (researchData) {
@@ -300,13 +292,8 @@ export default function ResearchResultScreen() {
           setCurrentResearch(researchData);
         }
         
-        // Try to fetch results
-        const { data: resultsData } = await supabase
-          .from('research_results_new')
-          .select('*')
-          .eq('research_id', researchId)
-          .order('created_at', { ascending: false })
-          .maybeSingle();
+        // Try to fetch results with caching
+        const resultsData = await fetchResearchResultWithCache(researchId);
           
         if (resultsData) {
           console.log('Found result data:', resultsData);
@@ -315,6 +302,9 @@ export default function ResearchResultScreen() {
         } else {
           console.log('No results found, waiting for updates');
           setWaitingForResults(true);
+          
+          // If we don't have results, we still need to subscribe for real-time updates
+          setupRealtimeSubscription();
         }
       } catch (err) {
         console.error('Error in fetchInitialData:', err);
@@ -325,7 +315,40 @@ export default function ResearchResultScreen() {
       }
     };
     
+    // Set up realtime subscription
+    const setupRealtimeSubscription = () => {
+      if (supabaseSubscriptionRef.current) {
+        // Clear existing subscription
+        supabaseSubscriptionRef.current.unsubscribe();
+      }
+      
+      // Subscribe to research_results_new table changes
+      supabaseSubscriptionRef.current = supabase
+        .channel('research_results_changes')
+        .on('postgres_changes', 
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'research_results_new',
+            filter: `research_id=eq.${researchId}`
+          }, 
+          (payload) => {
+            console.log('New result received:', payload);
+            setResearchResult(payload.new);
+            setWaitingForResults(false);
+          }
+        )
+        .subscribe();
+    };
+    
     fetchInitialData();
+    
+    // Clean up subscription on unmount
+    return () => {
+      if (supabaseSubscriptionRef.current) {
+        supabaseSubscriptionRef.current.unsubscribe();
+      }
+    };
     
     // No dependencies to prevent refetching
   }, [researchId]);
@@ -608,8 +631,8 @@ export default function ResearchResultScreen() {
                 shadowOpacity: 0.3,
                 shadowRadius: 4,
               }}
-            >
-              <Text style={styles.retryButtonText}>Go Back</Text>
+          >
+            <Text style={styles.retryButtonText}>Go Back</Text>
             </LinearGradient>
           </TouchableOpacity>
         </View>
@@ -619,42 +642,42 @@ export default function ResearchResultScreen() {
 
   // Check if we have research results to display
   if (researchResult) {
-    return (
+  return (
       <SafeAreaView style={[styles.container, { backgroundColor: COSMIC_THEME.midnightNavy }]}>
         <StatusBar style="light" />
         <LinearGradient
           colors={[COSMIC_THEME.midnightNavy, '#0A1830']}
           style={StyleSheet.absoluteFillObject}
         />
-        
-        {/* Header */}
+      
+      {/* Header */}
         <View style={[styles.header, { 
           backgroundColor: 'transparent', 
           borderBottomColor: 'rgba(100, 255, 218, 0.15)'
         }]}>
-          <TouchableOpacity 
-            style={styles.backButton}
-            onPress={() => navigation.goBack()}
-          >
-            <Ionicons name="arrow-back" size={24} color={COSMIC_THEME.paleMoonlight} />
-          </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: COSMIC_THEME.paleMoonlight }]}>
-            Research Result
-          </Text>
-          <TouchableOpacity 
-            style={styles.shareButton}
-            onPress={handleShare}
-            disabled={!currentResearch}
-          >
-            <MaterialIcons name="share" size={24} color={COSMIC_THEME.paleMoonlight} />
-          </TouchableOpacity>
-        </View>
-        
-        <ScrollView 
-          style={styles.content}
-          showsVerticalScrollIndicator={false}
+        <TouchableOpacity 
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
         >
-          {/* Research Content */}
+            <Ionicons name="arrow-back" size={24} color={COSMIC_THEME.paleMoonlight} />
+        </TouchableOpacity>
+          <Text style={[styles.headerTitle, { color: COSMIC_THEME.paleMoonlight }]}>
+          Research Result
+        </Text>
+        <TouchableOpacity 
+          style={styles.shareButton}
+          onPress={handleShare}
+            disabled={!currentResearch}
+        >
+            <MaterialIcons name="share" size={24} color={COSMIC_THEME.paleMoonlight} />
+        </TouchableOpacity>
+      </View>
+      
+      <ScrollView 
+        style={styles.content}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Research Content */}
           <MotiView
             from={{ opacity: 0, translateY: 10 }}
             animate={{ opacity: 1, translateY: 0 }}
@@ -741,11 +764,11 @@ export default function ResearchResultScreen() {
                 <MaterialIcons name="info-outline" size={48} color="rgba(224, 224, 224, 0.5)" />
                 <Text style={[styles.noResultText, { color: 'rgba(224, 224, 224, 0.5)' }]}>
                   Waiting for results...
-                </Text>
+          </Text>
               </View>
             )}
           </MotiView>
-          
+        
           {/* Feedback Section with enhanced styling */}
           <MotiView
             from={{ opacity: 0, translateY: 10 }}
@@ -855,7 +878,7 @@ export default function ResearchResultScreen() {
               </View>
             )}
           </MotiView>
-        </ScrollView>
+      </ScrollView>
       </SafeAreaView>
     );
   }
@@ -890,8 +913,8 @@ export default function ResearchResultScreen() {
               shadowOpacity: 0.3,
               shadowRadius: 4,
             }}
-          >
-            <Text style={styles.retryButtonText}>Go Back</Text>
+        >
+          <Text style={styles.retryButtonText}>Go Back</Text>
           </LinearGradient>
         </TouchableOpacity>
       </View>

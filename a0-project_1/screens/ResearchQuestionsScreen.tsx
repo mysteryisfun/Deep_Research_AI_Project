@@ -23,6 +23,7 @@ import { MotiView } from 'moti';
 import { fetchQuestions, submitAllAnswers, monitorQuestions } from '../utils/questionsManager';
 import { supabase } from '../utils/supabase';
 import { BlurView } from 'expo-blur';
+import config from '../utils/config';
 
 // Updated color palette with blue focus
 const COLORS = {

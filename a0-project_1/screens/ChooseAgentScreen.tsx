@@ -207,10 +207,6 @@ export default function ChooseAgentScreen() {
           <View style={styles.instructionCard}>
             <MaterialCommunityIcons name="robot-excited" size={24} color="#6c63ff" />
             <Text style={styles.instructionTitle}>Choose Your AI Research Partner</Text>
-            <Text style={styles.instructionText}>
-              Each agent is specialized in different research domains.
-              Select the one that best matches your research needs.
-            </Text>
           </View>
         </MotiView>
         
@@ -271,7 +267,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingVertical: 8, // Reduced padding
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.05)',
   },
@@ -290,16 +286,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    padding: 16,
-    paddingBottom: 100,
+    padding: 10, // Reduced padding
+    paddingBottom: 80, // Give space for the continue button
   },
   instructionContainer: {
-    marginBottom: 20,
+    marginBottom: 12, // Reduced margin
   },
   instructionCard: {
     backgroundColor: 'rgba(255, 255, 255, 0.05)',
     borderRadius: 20,
-    padding: 20,
+    padding: 12, // Reduced padding
     alignItems: 'center',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
@@ -308,12 +304,14 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 12,
     elevation: 8,
+    flexDirection: 'row', // Changed to row layout
+    justifyContent: 'center', // Center content
   },
   instructionTitle: {
-    fontSize: 20,
+    fontSize: 18, // Slightly reduced font size
     fontWeight: '700',
     color: '#fff',
-    marginVertical: 12,
+    marginLeft: 10, // Add margin to separate from icon
     textShadowColor: 'rgba(108, 99, 255, 0.5)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
@@ -331,7 +329,7 @@ const styles = StyleSheet.create({
   },
   cardContainer: {
     width: cardWidth,
-    marginBottom: 16,
+    marginBottom: 10, // Reduced margin
   },
   cardTouchable: {
     borderRadius: 20,
@@ -360,20 +358,20 @@ const styles = StyleSheet.create({
     elevation: 5, // Reduced elevation
   },
   cardContent: {
-    padding: 20,
+    padding: 16, // Reduced padding
     alignItems: 'center',
-    minHeight: 220,
+    minHeight: 200, // Reduced height
     // backgroundColor set dynamically
   },
   cardIconContainer: {
     position: 'relative',
-    width: 70,
-    height: 70,
-    borderRadius: 35,
+    width: 60, // Reduced size
+    height: 60, // Reduced size
+    borderRadius: 30, // Adjusted for new size
     backgroundColor: 'rgba(255, 255, 255, 0.08)', // More translucent
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 12, // Reduced margin
     borderWidth: 1, // Reduced from 2
     borderColor: 'rgba(255, 255, 255, 0.15)', // More translucent
     shadowColor: '#fff',
@@ -417,15 +415,16 @@ const styles = StyleSheet.create({
   },
   capabilitiesContainer: {
     width: '100%',
+    marginTop: 8, // Add small margin
   },
   capabilityBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     // backgroundColor set dynamically
-    borderRadius: 12,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    marginBottom: 8,
+    borderRadius: 10, // Slightly reduced
+    paddingVertical: 4, // Reduced padding
+    paddingHorizontal: 8, // Reduced padding
+    marginBottom: 6, // Reduced margin
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
   },
@@ -433,7 +432,7 @@ const styles = StyleSheet.create({
     marginRight: 6,
   },
   capabilityText: {
-    fontSize: 13,
+    fontSize: 12, // Reduced font size
     color: '#fff',
     fontWeight: '500',
   },

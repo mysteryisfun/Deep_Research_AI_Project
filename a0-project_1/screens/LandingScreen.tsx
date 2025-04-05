@@ -202,7 +202,10 @@ const THEME_COLORS = {
   accentPrimary: '#64FFDA', // Bright Teal/Cyan
   accentSecondary: '#4DB6AC', // Original Teal
   buttonText: '#FFFFFF',
+  featureDescriptionYellow: '#FFE082', // Soft yellow for feature descriptions
 };
+
+const { width, height } = Dimensions.get('window');
 
 export default function LandingScreen() {
   const navigation = useNavigation<any>();
@@ -1365,8 +1368,6 @@ export default function LandingScreen() {
   );
 }
 
-const { width, height } = Dimensions.get('window');
-
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
@@ -1374,7 +1375,7 @@ const styles = StyleSheet.create({
   },
   topRightButtons: {
     position: 'absolute',
-    top: Platform.OS === 'android' ? StatusBar.currentHeight || 20 + 10 : 50, // Adjust top based on StatusBar height
+    top: Platform.OS === 'android' ? (StatusBar.currentHeight || 20) : 35, // Reduced from 50 to 35 for iOS
     right: 15,
     flexDirection: 'row',
     zIndex: 10, // Ensure buttons are above everything
@@ -1433,19 +1434,19 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingTop: 80, // Adjusted padding for new layout
+    paddingTop: 60, // Reduced padding
     paddingBottom: 40,
-    paddingHorizontal: 20,
+    paddingHorizontal: 16, // Reduced horizontal padding for small screens
   },
   heroSection: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 40, // Reduced padding
+    paddingVertical: 20, // Reduced for mobile
     marginTop: 0, // Removed margin
-    marginBottom: 40, // Added margin bottom
+    marginBottom: 20, // Reduced margin
   },
   appName: {
-    fontSize: 36, // Slightly larger
+    fontSize: width < 350 ? 28 : 32, // Reduced size on small screens
     fontWeight: 'bold',
     color: THEME_COLORS.textPrimary,
     textAlign: 'center',
@@ -1455,7 +1456,7 @@ const styles = StyleSheet.create({
     textShadowRadius: 12,
   },
   tagline: {
-    fontSize: 18,
+    fontSize: width < 350 ? 16 : 18, // Smaller on small screens
     color: THEME_COLORS.textSecondary,
     textAlign: 'center',
     marginBottom: 0, // Removed margin
@@ -1487,8 +1488,8 @@ const styles = StyleSheet.create({
   cardSection: {
     backgroundColor: THEME_COLORS.cardBackground,
     borderRadius: 15,
-    padding: 25,
-    marginVertical: 20,
+    padding: width < 350 ? 18 : 25, // Reduced padding on small screens
+    marginVertical: 16, // Reduced margin
     elevation: 5,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
@@ -1499,32 +1500,32 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   sectionTitle: {
-    fontSize: 24, // Slightly larger
+    fontSize: width < 350 ? 20 : 24, // Smaller on small screens
     fontWeight: 'bold',
     color: THEME_COLORS.accentPrimary,
-    marginBottom: 30,
+    marginBottom: 20, // Reduced margin
     textAlign: 'center',
   },
   featuresSection: {
-    marginVertical: 40, // Add vertical margin
+    marginVertical: 20, // Reduced margin
   },
   featuresFlowContainer: {
     position: 'relative', // Needed for absolute positioning of connectors
-    paddingVertical: 20, // Add padding for connectors
+    paddingVertical: 10, // Reduced padding
   },
   featureNodeContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 40, // Spacing between feature rows
+    marginBottom: 30, // Reduced spacing
     width: '100%',
   },
   featureNodeContainerRight: {
     justifyContent: 'flex-end',
   },
   featureNode: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
+    width: width < 350 ? 60 : 70, // Smaller on small screens
+    height: width < 350 ? 60 : 70, // Smaller on small screens
+    borderRadius: width < 350 ? 30 : 35, // Adjust border radius
     backgroundColor: 'rgba(100, 255, 218, 0.15)', // accentPrimary with alpha
     justifyContent: 'center',
     alignItems: 'center',
@@ -1537,46 +1538,47 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
   },
   featureNodeIcon: {
-    fontSize: 30,
+    fontSize: width < 350 ? 26 : 30, // Smaller on small screens
   },
   featureNodeTextContainer: {
     flex: 1,
-    marginLeft: 20,
+    marginLeft: 12, // Reduced for small screens
   },
   featureNodeTextContainerRight: {
     marginLeft: 0,
-    marginRight: 20,
+    marginRight: 12, // Reduced for small screens
     alignItems: 'flex-end', // Align text to the right
   },
   featureTitle: {
-    fontSize: 18,
+    fontSize: width < 350 ? 16 : 18, // Smaller on small screens
     fontWeight: 'bold',
     color: THEME_COLORS.textPrimary,
-    marginBottom: 8,
+    marginBottom: 6, // Reduced margin
   },
   featureTitleRight: {
     textAlign: 'right',
   },
   featureDescription: {
     fontSize: 15,
-    color: THEME_COLORS.textSecondary,
+    color: THEME_COLORS.featureDescriptionYellow, // Changed to soft yellow
     lineHeight: 22,
   },
   featureDescriptionRight: {
     textAlign: 'right',
+    color: THEME_COLORS.featureDescriptionYellow, // Changed to soft yellow
   },
   featureConnector: {
     position: 'absolute',
     width: 2,
-    height: 50, // Height of the connector line
+    height: 40, // Reduced height on mobile
     backgroundColor: 'rgba(100, 255, 218, 0.4)', // accentPrimary with alpha
     left: '50%',
     marginLeft: -1, // Center the line
     zIndex: -1, // Place behind nodes
   },
-  connector1: { top: 90 },   // Position below first node
-  connector2: { top: 210 }, // Position below second node
-  connector3: { top: 330 }, // Position below third node
+  connector1: { top: 80 },   // Adjusted position
+  connector2: { top: 180 }, // Adjusted position
+  connector3: { top: 280 }, // Adjusted position
   
   // Specific node positions (adjust if needed based on layout)
   featureNode1: {
@@ -1666,27 +1668,28 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     borderColor: 'rgba(100, 255, 218, 0.3)',
     borderWidth: 1,
-    marginTop: 40,
+    marginTop: 30, // Reduced margin
+    marginBottom: 20, // Added margin bottom
   },
   ctaTitle: {
-    fontSize: 26,
+    fontSize: width < 350 ? 22 : 26, // Smaller on small screens
     fontWeight: 'bold',
     color: THEME_COLORS.textPrimary,
-    marginBottom: 15,
+    marginBottom: 12, // Reduced margin
     textAlign: 'center',
   },
   ctaDescription: {
-    fontSize: 16,
+    fontSize: width < 350 ? 14 : 16, // Smaller on small screens
     color: THEME_COLORS.textSecondary,
     textAlign: 'center',
-    marginBottom: 30,
-    lineHeight: 24,
-    maxWidth: '85%',
+    marginBottom: 20, // Reduced margin
+    lineHeight: width < 350 ? 20 : 24, // Reduced line height
+    maxWidth: '90%', // Increased width for better text wrapping
   },
   ctaButton: {
     backgroundColor: THEME_COLORS.accentPrimary,
-    paddingVertical: 16,
-    paddingHorizontal: 50,
+    paddingVertical: 14, // Reduced padding
+    paddingHorizontal: 40, // Reduced padding
     borderRadius: 30,
     elevation: 8,
     shadowColor: '#000',
@@ -1696,26 +1699,28 @@ const styles = StyleSheet.create({
   },
   ctaButtonText: {
     color: THEME_COLORS.background,
-    fontSize: 18,
+    fontSize: width < 350 ? 16 : 18, // Smaller on small screens
     fontWeight: 'bold',
   },
   footer: {
-    marginTop: 60,
-    marginBottom: 30,
+    marginTop: 40, // Reduced margin
+    marginBottom: 20, // Reduced margin
     alignItems: 'center',
     borderTopWidth: 1,
     borderTopColor: 'rgba(160, 177, 200, 0.2)',
-    paddingTop: 30,
+    paddingTop: 20, // Reduced padding
   },
   footerRow: {
     flexDirection: 'row',
     justifyContent: 'center',
+    flexWrap: 'wrap', // Enable wrapping for small screens
     marginBottom: 0,
   },
   footerLink: {
     color: THEME_COLORS.accentSecondary,
-    marginHorizontal: 15,
-    fontSize: 14,
+    marginHorizontal: 10, // Reduced margin
+    fontSize: width < 350 ? 12 : 14, // Smaller on small screens
+    marginBottom: 8, // Add margin bottom to handle wrapping
   },
   loadingContainer: {
     flex: 1,
@@ -1729,23 +1734,23 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(10, 25, 47, 0.7)',
   },
   loadingText: {
-    fontSize: 18,
+    fontSize: width < 350 ? 16 : 18, // Smaller on small screens
     fontWeight: 'bold',
     marginTop: 20,
   },
   // Research Agents Section Styles
   agentsSection: {
-    marginVertical: 40,
+    marginVertical: 20, // Reduced margin
     alignItems: 'center',
   },
   agentsCircleContainer: {
     width: width * 0.8, // 80% of screen width
-    height: width * 0.8,
-    borderRadius: (width * 0.8) / 2,
+    height: width * 0.8, // Make height match width for circular container
+    borderRadius: (width * 0.8) / 2, // Half of width for perfect circle
     position: 'relative',
     justifyContent: 'center',
     alignItems: 'center',
-    marginVertical: 30,
+    marginVertical: 20, // Reduced margin
     borderWidth: 2,
     borderColor: 'rgba(100, 255, 218, 0.1)', // Faint accent border
   },
@@ -1758,41 +1763,41 @@ const styles = StyleSheet.create({
   },
   agentQuadrant: {
     position: 'absolute',
-    width: '45%', // Size of the quadrant tap area
-    height: '45%',
+    width: '42%', // Reduced size to fit better
+    height: '42%',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 10,
+    padding: width < 350 ? 8 : 10, // Reduced padding on small screens
     borderRadius: 15, // Slightly rounded quadrants
     backgroundColor: 'rgba(25, 45, 65, 0.6)', // Semi-transparent card background
     borderWidth: 1,
     borderColor: 'rgba(100, 255, 218, 0.2)',
   },
-  agentQuadrantTopLeft: { top: '2.5%', left: '2.5%' },
-  agentQuadrantTopRight: { top: '2.5%', right: '2.5%' },
-  agentQuadrantBottomLeft: { bottom: '2.5%', left: '2.5%' },
-  agentQuadrantBottomRight: { bottom: '2.5%', right: '2.5%' },
+  agentQuadrantTopLeft: { top: '5%', left: '5%' }, // Adjusted positioning
+  agentQuadrantTopRight: { top: '5%', right: '5%' }, // Adjusted positioning
+  agentQuadrantBottomLeft: { bottom: '5%', left: '5%' }, // Adjusted positioning
+  agentQuadrantBottomRight: { bottom: '5%', right: '5%' }, // Adjusted positioning
   agentIcon: {
-    fontSize: 30,
-    marginBottom: 8,
+    fontSize: width < 350 ? 24 : 30, // Smaller on small screens
+    marginBottom: 6, // Reduced margin
   },
   agentName: {
-    fontSize: 16,
+    fontSize: width < 350 ? 14 : 16, // Smaller on small screens
     fontWeight: 'bold',
     color: THEME_COLORS.textPrimary,
     textAlign: 'center',
   },
   agentsDescription: {
-    fontSize: 15,
+    fontSize: width < 350 ? 13 : 15, // Smaller on small screens
     color: THEME_COLORS.textSecondary,
     textAlign: 'center',
-    marginTop: 20,
-    maxWidth: '85%',
-    lineHeight: 22,
+    marginTop: 16, // Reduced margin
+    maxWidth: '90%', // Increased from 85% for better text wrapping
+    lineHeight: width < 350 ? 18 : 22, // Reduced line height
   },
   flowContainer: {
     position: 'relative',
-    paddingVertical: 30,
+    paddingVertical: 15, // Reduced padding
     overflow: 'hidden',
   },
   pulseAnimationContainer: {
@@ -1826,7 +1831,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginVertical: 20,
+    marginVertical: 15, // Reduced margin
     position: 'relative',
     width: '100%',
   },
@@ -1835,27 +1840,27 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(100, 255, 218, 0.4)',
     flex: 1,
     marginHorizontal: 5,
-    maxWidth: 30,
+    maxWidth: width < 350 ? 20 : 30, // Reduced width on small screens
   },
   rowConnector: {
     alignItems: 'center',
     justifyContent: 'center',
-    height: 40,
+    height: 30, // Reduced height
     width: 30,
     alignSelf: 'center',
     position: 'relative',
   },
   rowConnectorLine: {
-    height: 30,
+    height: 20, // Reduced height
     width: 2,
     backgroundColor: 'rgba(100, 255, 218, 0.4)',
   },
   rowConnectorArrow: {
     width: 0,
     height: 0,
-    borderLeftWidth: 8,
-    borderRightWidth: 8,
-    borderTopWidth: 12,
+    borderLeftWidth: 6, // Reduced size
+    borderRightWidth: 6, // Reduced size
+    borderTopWidth: 10, // Reduced size
     borderLeftColor: 'transparent',
     borderRightColor: 'transparent',
     borderTopColor: 'rgba(100, 255, 218, 0.4)',
@@ -1865,7 +1870,7 @@ const styles = StyleSheet.create({
   flowNode: {
     backgroundColor: 'rgba(25, 45, 65, 0.7)',
     borderRadius: 15,
-    padding: 15,
+    padding: width < 350 ? 10 : 15, // Smaller padding on small screens
     width: '30%',
     borderWidth: 1,
     borderColor: 'rgba(100, 255, 218, 0.2)',
@@ -1878,20 +1883,20 @@ const styles = StyleSheet.create({
   flowNodeIcon: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 10,
+    marginBottom: width < 350 ? 6 : 10, // Reduced margin
   },
   nodeEmoji: {
-    fontSize: 20,
-    marginRight: 10,
+    fontSize: width < 350 ? 16 : 20, // Smaller on small screens
+    marginRight: 6, // Reduced margin
   },
   flowNodeIconText: {
-    fontSize: 18,
+    fontSize: width < 350 ? 14 : 18, // Smaller on small screens
     fontWeight: 'bold',
     color: THEME_COLORS.accentPrimary,
     backgroundColor: 'rgba(25, 45, 65, 0.9)',
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: width < 350 ? 20 : 24, // Smaller on small screens
+    height: width < 350 ? 20 : 24, // Smaller on small screens
+    borderRadius: width < 350 ? 10 : 12, // Adjust border radius
     textAlign: 'center',
     overflow: 'hidden',
   },
@@ -1899,14 +1904,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   flowNodeTitle: {
-    fontSize: 14,
+    fontSize: width < 350 ? 12 : 14, // Smaller on small screens
     fontWeight: 'bold',
     color: THEME_COLORS.textPrimary,
-    marginBottom: 5,
+    marginBottom: 2, // Reduced margin
   },
   flowNodeDescription: {
-    fontSize: 12,
+    fontSize: width < 350 ? 10 : 12, // Smaller on small screens
     color: THEME_COLORS.textSecondary,
-    lineHeight: 16,
+    lineHeight: width < 350 ? 14 : 16, // Reduced line height
   },
 }); 

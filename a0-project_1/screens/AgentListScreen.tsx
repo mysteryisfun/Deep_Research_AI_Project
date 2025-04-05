@@ -4,7 +4,7 @@ import {
   View, 
   Text, 
   StyleSheet, 
-  TouchableOpacity,
+  TouchableOpacity, 
   FlatList,
   Dimensions
 } from 'react-native';
@@ -31,8 +31,9 @@ const COSMIC_THEME = {
   accentGlow: 'rgba(255, 193, 7, 0.15)',    // Subtle gold glow
 };
 
-const { width } = Dimensions.get('window');
-const cardWidth = (width - 60) / 2; // 2 cards per row with spacing
+const { width, height } = Dimensions.get('window');
+const isSmallScreen = width < 380;
+const cardWidth = Math.min((width - (isSmallScreen ? 40 : 60)) / 2, 180); // Limit max width and adjust spacing for small screens
 
 // Create a GlassMorphicCard component for consistent styling
 const GlassMorphicCard = ({ 
@@ -186,7 +187,7 @@ const AgentCard = ({ agent, index }) => {
           
           <View style={styles.cardContent}>
             <View style={styles.iconContainer}>
-              <MaterialIcons name={agent.icon} size={28} color={COSMIC_THEME.glacialTeal} />
+              <MaterialIcons name={agent.icon} size={isSmallScreen ? 24 : 28} color={COSMIC_THEME.glacialTeal} />
             </View>
             
             <Text style={styles.agentName}>{agent.name}</Text>
@@ -199,25 +200,25 @@ const AgentCard = ({ agent, index }) => {
               <TouchableOpacity 
                 style={styles.readMoreButton}
                 onPress={() => navigation.navigate(getScreenNameForAgent(agent.specialty))}
-              >
+        >
                 <Text style={styles.readMoreButtonText}>Read More</Text>
               </TouchableOpacity>
               
               <TouchableOpacity 
                 style={styles.researchButton}
                 onPress={() => navigation.navigate('ResearchParametersScreen', { agent })}
-              >
-                <LinearGradient
+          >
+          <LinearGradient
                   colors={['rgba(100, 255, 218, 0.8)', 'rgba(59, 130, 246, 0.8)']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
                   style={styles.researchButtonGradient}
-                >
+          >
                   <Text style={styles.researchButtonText}>Research</Text>
-                </LinearGradient>
-              </TouchableOpacity>
-            </View>
-          </View>
+          </LinearGradient>
+        </TouchableOpacity>
+        </View>
+      </View>
         </LinearGradient>
       </GlassMorphicCard>
     </MotiView>
@@ -256,16 +257,18 @@ export default function AgentListScreen() {
       </View>
       
       {/* Main content - Grid of agents */}
-      <FlatList
-        data={agentData}
-        keyExtractor={(item) => item.id}
-        numColumns={2}
-        columnWrapperStyle={styles.row}
-        contentContainerStyle={styles.listContent}
-        renderItem={({ item, index }) => (
-          <AgentCard agent={item} index={index} />
-        )}
-      />
+      <View style={styles.centerContent}>
+        <FlatList
+          data={agentData}
+          keyExtractor={(item) => item.id}
+          numColumns={2}
+          columnWrapperStyle={styles.row}
+          contentContainerStyle={styles.listContent}
+          renderItem={({ item, index }) => (
+            <AgentCard agent={item} index={index} />
+          )}
+        />
+          </View>
     </SafeAreaView>
   );
 }
@@ -279,8 +282,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: 20,
-    paddingBottom: 20,
+    paddingTop: 8,
+    paddingBottom: 8,
     paddingHorizontal: 20,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(100, 255, 218, 0.1)',
@@ -298,16 +301,22 @@ const styles = StyleSheet.create({
   headerPlaceholder: {
     width: 40,
   },
+  centerContent: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   listContent: {
-    padding: 20,
-    paddingBottom: 40,
+    padding: isSmallScreen ? 10 : 20,
+    paddingBottom: 20,
   },
   row: {
-    justifyContent: 'space-between',
-    marginBottom: 20,
+    justifyContent: 'center',
+    marginBottom: 16,
+    gap: isSmallScreen ? 10 : 20,
   },
   agentCardContainer: {
-    height: 250, // Increased height for two buttons
+    height: isSmallScreen ? 220 : 240, // Reduced height for better fit
   },
   agentCard: {
     flex: 1,
@@ -339,41 +348,41 @@ const styles = StyleSheet.create({
   },
   cardContent: {
     flex: 1,
-    padding: 16,
+    padding: isSmallScreen ? 12 : 16,
     justifyContent: 'space-between',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
     backgroundColor: 'rgba(0, 0, 0, 0.2)',
   },
   iconContainer: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: isSmallScreen ? 44 : 50,
+    height: isSmallScreen ? 44 : 50,
+    borderRadius: isSmallScreen ? 22 : 25,
     backgroundColor: 'rgba(10, 17, 40, 0.6)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: isSmallScreen ? 8 : 12,
     borderWidth: 1,
     borderColor: 'rgba(100, 255, 218, 0.2)',
   },
   agentName: {
-    fontSize: 16,
+    fontSize: isSmallScreen ? 14 : 16,
     fontWeight: '700',
     color: COSMIC_THEME.paleMoonlight,
-    marginBottom: 8,
+    marginBottom: 6,
   },
   agentDescription: {
-    fontSize: 12,
+    fontSize: isSmallScreen ? 11 : 12,
     color: 'rgba(255, 255, 255, 0.8)',
-    lineHeight: 16,
-    marginBottom: 16,
+    lineHeight: isSmallScreen ? 14 : 16,
+    marginBottom: isSmallScreen ? 12 : 16,
   },
   agentActions: {
-    gap: 8,
+    gap: 6,
   },
   readMoreButton: {
     backgroundColor: 'rgba(100, 255, 218, 0.1)',
-    paddingVertical: 8,
+    paddingVertical: 6,
     paddingHorizontal: 8,
     borderRadius: 8,
     alignItems: 'center',
@@ -383,14 +392,14 @@ const styles = StyleSheet.create({
   readMoreButtonText: {
     color: COSMIC_THEME.paleMoonlight,
     fontWeight: '600',
-    fontSize: 13,
+    fontSize: isSmallScreen ? 12 : 13,
   },
   researchButton: {
     borderRadius: 8,
     overflow: 'hidden',
   },
   researchButtonGradient: {
-    paddingVertical: 8,
+    paddingVertical: 6,
     paddingHorizontal: 8,
     alignItems: 'center',
     justifyContent: 'center',
@@ -398,6 +407,6 @@ const styles = StyleSheet.create({
   researchButtonText: {
     color: COSMIC_THEME.midnightNavy,
     fontWeight: '600',
-    fontSize: 13,
+    fontSize: isSmallScreen ? 12 : 13,
   },
 });

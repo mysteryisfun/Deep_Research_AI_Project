@@ -9,7 +9,8 @@ import {
   Animated, 
   Dimensions,
   Pressable,
-  Platform
+  Platform,
+  ActivityIndicator
 } from 'react-native';
 import { WavyBackground } from '../components/ui/WavyBackground';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -40,6 +41,9 @@ import Svg, {
   Filter,
   FeDropShadow
 } from 'react-native-svg';
+import { useUser } from '../context/UserContext';
+import { cacheManager } from '../utils/cacheManager';
+import { supabase } from '../utils/supabase';
 
 // Dark Theme Color Palette - Darker shade
 const COLORS = {
@@ -71,7 +75,7 @@ const GlassMorphicBlur = ({ intensity = 50, tint = 'dark', style, children }) =>
 };
 
 // SVG CPU Architecture Animation Component
-const CPUArchitectureAnimation = ({ onPress, size }) => {
+const CPUArchitectureAnimation = ({ onPress, size, stats }) => {
   const [mounted, setMounted] = useState(false);
   
   useEffect(() => {
@@ -241,11 +245,11 @@ const CPUArchitectureAnimation = ({ onPress, size }) => {
             <Stop offset="60%" stopColor="#121214" />
           </SvgLinearGradient>
           
-          {/* CPU Text Gradient */}
+          {/* CPU Text Gradient - Make it more linear */}
           <SvgLinearGradient id="cpu-text-gradient" x1="0" y1="0" x2="1" y2="0">
             <Stop offset="0%" stopColor="#666666" />
-            <Stop offset="25%" stopColor="white" />
-            <Stop offset="50%" stopColor="#666666" />
+            <Stop offset="50%" stopColor="white" stopOpacity="1" />
+            <Stop offset="100%" stopColor="#666666" />
           </SvgLinearGradient>
         </Defs>
         
@@ -270,22 +274,133 @@ const CPUArchitectureAnimation = ({ onPress, size }) => {
             <Rect x="87" y="14" width="2.5" height="5" rx="0.7" />
           </G>
           
-          {/* Main Button Rectangle */}
-          <Rect x="60" y="40" width="80" height="20" rx="3" fill="#181818" />
+          {/* Main Button Rectangle - Added stroke/border to match circle buttons */}
+          <Rect 
+            x="60" 
+            y="40" 
+            width="80" 
+            height="20" 
+            rx="3" 
+            fill="#181818" 
+            stroke="rgba(100, 255, 218, 0.3)" 
+            strokeWidth="1.5"
+          />
           
-          {/* Button Text */}
-          <SvgText x="64" y="53" fontSize="6" fill="url(#cpu-text-gradient)" fontWeight="700" letterSpacing="0.05">START + RESEARCH</SvgText>
+          {/* Button Text - Centered and aligned better */}
+          <SvgText 
+            x="100" 
+            y="53" 
+            fontSize="6" 
+            fill="url(#cpu-text-gradient)" 
+            fontWeight="700" 
+            letterSpacing="0.05"
+            textAnchor="middle" 
+            alignmentBaseline="middle"
+          >
+            START + RESEARCH
+          </SvgText>
         </G>
       </Svg>
     </Pressable>
   );
 };
 
+// Define dashboard caching constants
+const DASHBOARD_CACHE_KEY = 'dashboard_stats';
+const DASHBOARD_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 export default function DashboardScreen() {
   const navigation = useNavigation();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scrollY = useRef(new Animated.Value(0)).current;
   const { theme, isDarkMode } = useTheme();
+  const { userId } = useUser();
+  const [isLoading, setIsLoading] = useState(false);
+  const [dashboardStats, setDashboardStats] = useState({
+    totalResearch: 0,
+    completedResearch: 0,
+    pendingResearch: 0,
+    recentAgents: []
+  });
+  
+  // Fetch dashboard statistics with caching
+  useEffect(() => {
+    const fetchDashboardStats = async () => {
+      if (!userId) return;
+      
+      setIsLoading(true);
+      try {
+        // Use cacheManager to get stats with caching
+        const cacheKey = `${DASHBOARD_CACHE_KEY}_${userId}`;
+        const stats = await cacheManager.getOrFetch(
+          cacheKey,
+          () => fetchDashboardStatsFromApi(userId),
+          { ttl: DASHBOARD_CACHE_TTL }
+        );
+        
+        setDashboardStats(stats);
+      } catch (error) {
+        console.error('Error fetching dashboard stats:', error);
+        // Use default stats on error
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    fetchDashboardStats();
+  }, [userId]);
+  
+  // Fetch dashboard statistics from API
+  const fetchDashboardStatsFromApi = async (userId) => {
+    // Default stats
+    const defaultStats = {
+      totalResearch: 0,
+      completedResearch: 0,
+      pendingResearch: 0,
+      recentAgents: []
+    };
+    
+    try {
+      // Fetch research history stats from Supabase
+      const { data: historyData, error: historyError } = await supabase
+        .from('research_history_new')
+        .select('research_id, status, agent')
+        .eq('user_id', userId);
+      
+      if (historyError) {
+        console.error('Error fetching research history stats:', historyError);
+        return defaultStats;
+      }
+      
+      // Calculate stats
+      const totalResearch = historyData.length;
+      const completedResearch = historyData.filter(item => item.status === 'completed').length;
+      const pendingResearch = historyData.filter(item => item.status !== 'completed').length;
+      
+      // Get recent agents used
+      const agentCounts = {};
+      historyData.forEach(item => {
+        const agent = item.agent || 'General Agent';
+        agentCounts[agent] = (agentCounts[agent] || 0) + 1;
+      });
+      
+      // Sort agents by usage count
+      const recentAgents = Object.entries(agentCounts)
+        .map(([agent, count]) => ({ agent, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 4); // Take top 4 agents
+      
+      return {
+        totalResearch,
+        completedResearch, 
+        pendingResearch,
+        recentAgents
+      };
+    } catch (error) {
+      console.error('Error in fetchDashboardStatsFromApi:', error);
+      return defaultStats;
+    }
+  };
   
   useEffect(() => {
     Animated.timing(fadeAnim, {
@@ -348,98 +463,108 @@ export default function DashboardScreen() {
         </Animated.View>
       </View>
       
-      {/* Circular Buttons Layout */}
-      <Animated.View 
-        style={[
-          styles.circularContainer,
-          { opacity: fadeAnim }
-        ]}
-      >
-        {/* Center Button - CPU Architecture for New Research */}
-        <MotiView
-          from={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ type: 'timing', duration: 500 }}
-          style={[styles.centerButtonWrapper]}
-        >
-          <CPUArchitectureAnimation 
-            onPress={() => navigateToScreen('ChooseAgentScreen')}
-            size={centerCircleSize}
-          />
-        </MotiView>
-        
-        {/* Top Button - History */}
-        <MotiView
-          from={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ type: 'timing', duration: 500, delay: 100 }}
+      {/* Circular Buttons Layout with conditional loading indicator */}
+      {isLoading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={COLORS.glacialTeal} />
+          <Text style={styles.loadingText}>Loading dashboard...</Text>
+        </View>
+      ) : (
+        <Animated.View 
           style={[
-            styles.outerButtonWrapper,
-            { top: '5%', left: '50%', marginLeft: -outerCircleSize/2, zIndex: 10 }
+            styles.circularContainer,
+            { opacity: fadeAnim }
           ]}
         >
-          <CircleButton 
-            title="History"
-            icon={<MaterialIcons name="history" size={28} color={COLORS.paleMoonlight} />}
-            onPress={() => navigateToScreen('History')}
-            size={outerCircleSize}
-          />
-        </MotiView>
-        
-        {/* Right Button - Active Queue */}
-        <MotiView
-          from={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ type: 'timing', duration: 500, delay: 150 }}
-          style={[
-            styles.outerButtonWrapper,
-            { top: '50%', right: '5%', marginTop: -outerCircleSize/2, zIndex: 10 }
-          ]}
-        >
-          <CircleButton 
-            title="Queue"
-            icon={<MaterialCommunityIcons name="clipboard-text-clock" size={28} color={COLORS.paleMoonlight} />}
-            onPress={() => navigateToScreen('Queue')}
-            size={outerCircleSize}
-          />
-        </MotiView>
-        
-        {/* Bottom Button - Find Study */}
-        <MotiView
-          from={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ type: 'timing', duration: 500, delay: 200 }}
-          style={[
-            styles.outerButtonWrapper,
-            { bottom: '5%', left: '50%', marginLeft: -outerCircleSize/2, zIndex: 10 }
-          ]}
-        >
-          <CircleButton 
-            title="Find Study"
-            icon={<Feather name="search" size={28} color={COLORS.paleMoonlight} />}
-            onPress={() => navigateToScreen('FindStudyScreen')}
-            size={outerCircleSize}
-          />
-        </MotiView>
-        
-        {/* Left Button - Our Agents */}
-        <MotiView
-          from={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ type: 'timing', duration: 500, delay: 250 }}
-          style={[
-            styles.outerButtonWrapper,
-            { top: '50%', left: '5%', marginTop: -outerCircleSize/2, zIndex: 10 }
-          ]}
-        >
-          <CircleButton 
-            title="Agents"
-            icon={<FontAwesome5 name="robot" size={28} color={COLORS.paleMoonlight} />}
-            onPress={() => navigateToScreen('AgentListScreen')}
-            size={outerCircleSize}
-          />
-        </MotiView>
-      </Animated.View>
+          {/* Render stats on the central CPU visualization */}
+          
+          {/* Center Button - CPU Architecture with Stats */}
+          <MotiView
+            from={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ type: 'timing', duration: 500 }}
+            style={[styles.centerButtonWrapper]}
+          >
+            <CPUArchitectureAnimation 
+              onPress={() => navigateToScreen('ChooseAgentScreen')}
+              size={centerCircleSize}
+              stats={dashboardStats}
+            />
+          </MotiView>
+          
+          {/* Top Button - History - Repositioned to top left of rectangle */}
+          <MotiView
+            from={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ type: 'timing', duration: 500, delay: 100 }}
+            style={[
+              styles.outerButtonWrapper,
+              { top: '20%', left: '25%', zIndex: 10 }
+            ]}
+          >
+            <CircleButton 
+              title="History"
+              icon={<MaterialIcons name="history" size={28} color={COLORS.paleMoonlight} />}
+              onPress={() => navigateToScreen('History')}
+              size={outerCircleSize}
+            />
+          </MotiView>
+          
+          {/* Right Button - Active Queue - Repositioned to top right of rectangle */}
+          <MotiView
+            from={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ type: 'timing', duration: 500, delay: 150 }}
+            style={[
+              styles.outerButtonWrapper,
+              { top: '20%', right: '25%', zIndex: 10 }
+            ]}
+          >
+            <CircleButton 
+              title="Queue"
+              icon={<MaterialCommunityIcons name="clipboard-text-clock" size={28} color={COLORS.paleMoonlight} />}
+              onPress={() => navigateToScreen('Queue')}
+              size={outerCircleSize}
+            />
+          </MotiView>
+          
+          {/* Bottom Button - Find Study - Repositioned to bottom right of rectangle */}
+          <MotiView
+            from={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ type: 'timing', duration: 500, delay: 200 }}
+            style={[
+              styles.outerButtonWrapper,
+              { bottom: '20%', right: '25%', zIndex: 10 }
+            ]}
+          >
+            <CircleButton 
+              title="Find Study"
+              icon={<Feather name="search" size={28} color={COLORS.paleMoonlight} />}
+              onPress={() => navigateToScreen('FindStudyScreen')}
+              size={outerCircleSize}
+            />
+          </MotiView>
+          
+          {/* Left Button - Our Agents - Repositioned to bottom left of rectangle */}
+          <MotiView
+            from={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ type: 'timing', duration: 500, delay: 250 }}
+            style={[
+              styles.outerButtonWrapper,
+              { bottom: '20%', left: '25%', zIndex: 10 }
+            ]}
+          >
+            <CircleButton 
+              title="Agents"
+              icon={<FontAwesome5 name="robot" size={28} color={COLORS.paleMoonlight} />}
+              onPress={() => navigateToScreen('AgentListScreen')}
+              size={outerCircleSize}
+            />
+          </MotiView>
+        </Animated.View>
+      )}
     </SafeAreaView>
   );
 }
@@ -652,4 +777,14 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 12,
+    fontSize: 16,
+    color: COLORS.paleMoonlight,
+  }
 });

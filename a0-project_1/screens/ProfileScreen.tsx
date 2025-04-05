@@ -35,7 +35,6 @@ import {
   ProfileData
 } from '../utils/profileService';
 import { useUser } from '../context/UserContext';
-import { areNotificationsEnabled, toggleNotifications } from '../utils/notificationService';
 
 // Define our cosmic theme palette
 const COSMIC_THEME = {
@@ -124,10 +123,6 @@ export default function ProfileScreen() {
   const [error, setError] = useState('');
   const [userId, setUserId] = useState<string | null>(null);
   
-  // Settings state
-  const [pushNotifications, setPushNotifications] = useState(false);
-  const [inAppNotifications, setInAppNotifications] = useState(true);
-  
   // Profile image
   const [profileImage, setProfileImage] = useState("https://api.a0.dev/assets/image?text=minimal%20profile%20avatar%20professional&aspect=1:1&seed=123");
   
@@ -152,20 +147,6 @@ export default function ProfileScreen() {
     if (themeMode !== 'cosmic') {
       setThemeMode('cosmic');
     }
-  }, []);
-
-  useEffect(() => {
-    // Load notification settings
-    const loadNotificationSettings = async () => {
-      try {
-        const notificationsEnabled = await areNotificationsEnabled();
-        setPushNotifications(notificationsEnabled);
-      } catch (error) {
-        console.error('Error loading notification settings:', error);
-      }
-    };
-    
-    loadNotificationSettings();
   }, []);
 
   const fetchUserProfile = async () => {
@@ -624,62 +605,6 @@ export default function ProfileScreen() {
                 />
               </TouchableOpacity>
 
-              <View style={styles.preferenceItem}>
-                <View style={styles.preferenceContent}>
-                  <MaterialIcons 
-                    name="notifications" 
-                    size={24} 
-                    color={COSMIC_THEME.glacialTeal} 
-                  />
-                  <Text style={styles.preferenceText}>
-                    Push Notifications
-                  </Text>
-                </View>
-                <Switch
-                  value={pushNotifications}
-                  onValueChange={async (value) => {
-                    try {
-                      const success = await toggleNotifications(value);
-                      if (success) {
-                        setPushNotifications(value);
-                      } else {
-                        setPushNotifications(false);
-                        toast('Could not enable notifications. Please check your permissions.', {
-                          duration: 3000,
-                          type: 'warning',
-                        });
-                      }
-                    } catch (error) {
-                      console.error('Error toggling notifications:', error);
-                      setPushNotifications(false);
-                    }
-                  }}
-                  trackColor={{ false: 'rgba(255, 255, 255, 0.2)', true: 'rgba(100, 255, 218, 0.3)' }}
-                  thumbColor={COSMIC_THEME.paleMoonlight}
-                  ios_backgroundColor="rgba(255, 255, 255, 0.1)"
-                />
-              </View>
-              
-              <View style={styles.preferenceItem}>
-                <View style={styles.preferenceContent}>
-                  <MaterialIcons 
-                    name="notifications-active" 
-                    size={24} 
-                    color={COSMIC_THEME.glacialTeal} 
-                  />
-                  <Text style={styles.preferenceText}>
-                    In-app Notifications
-                  </Text>
-                </View>
-                <Switch
-                  value={inAppNotifications}
-                  onValueChange={setInAppNotifications}
-                  trackColor={{ false: 'rgba(255, 255, 255, 0.2)', true: 'rgba(100, 255, 218, 0.3)' }}
-                  thumbColor={COSMIC_THEME.paleMoonlight}
-                  ios_backgroundColor="rgba(255, 255, 255, 0.1)"
-                />
-              </View>
-              
               <TouchableOpacity 
                 style={styles.preferenceItem}
                 onPress={() => navigation.navigate('HelpCenterScreen')}

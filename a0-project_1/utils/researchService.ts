@@ -74,6 +74,55 @@ export async function fetchResearchByIdWithCache(
 }
 
 /**
+ * Fetch research results by ID with caching
+ * 
+ * @param researchId The research ID to fetch results for
+ * @param options Optional parameters for caching behavior
+ * @returns Research results or null if not found
+ */
+export async function fetchResearchResultWithCache(
+  researchId: string,
+  options = { forceRefresh: false }
+) {
+  const cacheKey = `${CACHE_KEYS.RESEARCH_RESULTS}${researchId}`;
+  
+  return cacheManager.getOrFetch(
+    cacheKey,
+    () => fetchResearchResultFromApi(researchId),
+    { 
+      ttl: CACHE_TTL.RESEARCH_RESULTS,
+      forceRefresh: options.forceRefresh 
+    }
+  );
+}
+
+/**
+ * Internal function to fetch research results from API
+ */
+async function fetchResearchResultFromApi(researchId: string) {
+  try {
+    console.log('ResearchService: Fetching research results from API:', researchId);
+    
+    const { data, error } = await supabase
+      .from('research_results_new')
+      .select('*')
+      .eq('research_id', researchId)
+      .order('created_at', { ascending: false })
+      .maybeSingle();
+    
+    if (error) {
+      console.error('ResearchService: Error fetching research results:', error);
+      return null;
+    }
+    
+    return data;
+  } catch (error) {
+    console.error('ResearchService: Unexpected error fetching research results:', error);
+    return null;
+  }
+}
+
+/**
  * Internal function to fetch research history from API
  */
 async function fetchResearchHistoryFromApi(userId: string) {
@@ -474,6 +523,7 @@ export const markResearchAsComplete = async (
         
       // Send a push notification for research completion
       if (historyData?.query) {
+        console.log('Sending research completion notification');
         sendResearchCompletionNotification(researchId, historyData.query)
           .catch(notificationError => {
             console.error('Error sending research completion notification:', notificationError);
@@ -857,11 +907,11 @@ export async function updateCachedHistoryStatus(
 }
 
 /**
- * Fetch active queue items for a user with caching
+ * Fetch active queue (pending research) with caching
  * 
- * @param userId The user ID to fetch active queue items for
+ * @param userId The user ID to fetch active queue for
  * @param options Optional parameters for caching behavior
- * @returns Active queue items array
+ * @returns Array of active research items
  */
 export async function fetchActiveQueueWithCache(
   userId: string,
@@ -872,35 +922,35 @@ export async function fetchActiveQueueWithCache(
   return cacheManager.getOrFetch(
     cacheKey,
     () => fetchActiveQueueFromApi(userId),
-    {
+    { 
       ttl: CACHE_TTL.ACTIVE_QUEUE,
       forceRefresh: options.forceRefresh,
-      background: options.background
+      background: options.background 
     }
   );
 }
 
 /**
- * Internal function to fetch active queue items from API
+ * Internal function to fetch active queue from API
  */
 async function fetchActiveQueueFromApi(userId: string) {
   try {
     console.log('ResearchService: Fetching active queue from API for user:', userId);
     
-    // Fetch items that are in progress (not completed)
+    // Query items that are pending or in progress
     const { data, error } = await supabase
       .from('research_history_new')
       .select('*')
       .eq('user_id', userId)
-      .neq('status', 'completed')
+      .in('status', ['pending', 'in_progress'])
       .order('created_at', { ascending: false });
-      
+    
     if (error) {
       console.error('ResearchService: Error fetching active queue:', error);
       return [];
     }
     
-    return data;
+    return data || [];
   } catch (error) {
     console.error('ResearchService: Unexpected error fetching active queue:', error);
     return [];

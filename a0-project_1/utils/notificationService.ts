@@ -46,12 +46,28 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
     return null;
   }
 
-  // Get the push token
+  // Get the push token based on platform
   try {
+    // Get the project ID from Expo configuration
     const projectId = Constants.expoConfig?.extra?.eas?.projectId;
-    const token = (await Notifications.getExpoPushTokenAsync({
-      projectId,
-    })).data;
+    
+    // Platform-specific token registration
+    let token;
+    
+    if (Platform.OS === 'android' || Platform.OS === 'ios') {
+      // For mobile platforms, we can use the standard approach
+      token = (await Notifications.getExpoPushTokenAsync({
+        projectId: projectId || undefined,
+      })).data;
+    } else if (Platform.OS === 'web') {
+      // For web, we need a VAPID key, but we'll skip this for mobile-only implementation
+      console.log('Web push notifications require VAPID key in app.json');
+      return null;
+    } else {
+      // Unknown platform
+      console.log(`Push notifications not configured for platform: ${Platform.OS}`);
+      return null;
+    }
     
     console.log('Push token:', token);
     

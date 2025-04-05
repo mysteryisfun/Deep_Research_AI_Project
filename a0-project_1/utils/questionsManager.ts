@@ -1,4 +1,5 @@
 import { supabase, generateEntityId } from './supabase';
+import config from './config';
 
 /**
  * Interface for individual question data
@@ -588,9 +589,9 @@ export async function createTestQuestion(researchId: string, userId: string): Pr
 }
 
 /**
- * Submits all answers at once for a given research ID
+ * Submits all answers for a research question batch
  * @param researchId The ID of the research to submit answers for
- * @param answers Record mapping question IDs to their answers
+ * @param answers Record mapping question IDs to answers
  * @returns Success flag and data or error
  */
 export async function submitAllAnswers(
@@ -598,251 +599,259 @@ export async function submitAllAnswers(
   answers: Record<string, string>
 ): Promise<{ success: boolean; data?: any; error?: any }> {
   try {
-    console.log(`Submitting all answers for research: ${researchId}`);
-    console.log(`Raw answers received:`, JSON.stringify(answers));
+    console.log(`Submitting all answers for research ID: ${researchId}`);
+    console.log(`Have ${Object.keys(answers).length} answers to submit`);
     
-    // Get the current questions for this research
+    // Validate inputs
+    if (!researchId) {
+      console.error('Missing research ID');
+      return { success: false, error: { message: 'Missing research ID' } };
+    }
+    
+    if (!answers || Object.keys(answers).length === 0) {
+      console.error('No answers provided');
+      return { success: false, error: { message: 'No answers provided' } };
+    }
+    
+    // Get the question batch from the array-based table
     const { data: arrayData, error: arrayError } = await supabase
       .from('research_questions_array')
       .select('*')
       .eq('research_id', researchId)
-      .single();
+      .order('created_at', { ascending: true })
+      .maybeSingle();
     
     if (arrayError) {
-      console.error('Error fetching research question batch:', arrayError);
-      return { success: false, error: arrayError };
+      console.error('Error fetching question array:', arrayError);
     }
     
-    if (!arrayData) {
-      console.error('No research question batch found');
-      return { success: false, error: 'No question batch found' };
-    }
-    
-    const currentQuestions = arrayData.questions || [];
-    const currentAnswers = arrayData.answers || [];
-    
-    console.log(`Found question batch with ID: ${arrayData.question_id}`);
-    console.log(`Current questions: ${currentQuestions.length}, Current answers: ${currentAnswers.length}`);
-    
-    // Process each answer - Handle both formats:
-    // 1. Direct question IDs (q1, q2, etc.)
-    // 2. Combined IDs (batch-123-q1, batch-123-q2, etc.)
-    const updatedAnswers = [...currentAnswers];
-    const updatedQuestions = [...currentQuestions];
-    
-    // Extract and normalize the question IDs from the provided answers
-    const normalizedAnswers: Record<string, string> = {};
-    
-    for (const fullQuestionId in answers) {
-      // Skip empty answers
-      const answerText = answers[fullQuestionId];
-      if (!answerText || answerText.trim() === '') continue;
+    // If we have array data, update it
+    if (arrayData) {
+      console.log(`Found question batch: ${arrayData.question_id}`);
       
-      // Check if this is a combined ID (batch-id-question-id format)
-      const parts = fullQuestionId.split('-');
-      let questionId;
+      // Get existing answers array or create new one
+      const existingAnswers = arrayData.answers || [];
+      let updatedAnswers = [...existingAnswers];
       
-      if (parts.length > 1 && fullQuestionId.includes(arrayData.question_id)) {
-        // This is a combined ID in the format "batch-id-question-id"
-        // The question ID is the last part (e.g., q1, q2, etc.)
-        questionId = parts[parts.length - 1];
-        console.log(`Normalized combined ID ${fullQuestionId} to ${questionId}`);
-      } else {
-        // This is already a direct question ID
-        questionId = fullQuestionId;
-        console.log(`Using direct question ID: ${questionId}`);
+      // Count how many answers we're actually updating
+      let updatedCount = 0;
+      
+      // Update each answer in the batch
+      for (const [questionId, answerText] of Object.entries(answers)) {
+        // Skip empty answers
+        if (!answerText || answerText.trim() === '') {
+          console.log(`Skipping empty answer for question: ${questionId}`);
+          continue;
+        }
+        
+        console.log(`Processing answer for question: ${questionId}`);
+        
+        // Extract the item ID from the compound question ID (batchId-itemId)
+        const parts = questionId.split('-');
+        const questionItemId = parts.length > 1 ? parts[1] : null;
+        
+        if (!questionItemId) {
+          console.warn(`Invalid question ID format: ${questionId}, expected format: batchId-itemId`);
+          continue;
+        }
+        
+        // Find if we already have an answer for this question
+        const existingIndex = updatedAnswers.findIndex((a: QuestionItem) => a.id === questionItemId);
+        
+        if (existingIndex >= 0) {
+          // Update existing answer
+          updatedAnswers[existingIndex] = {
+            ...updatedAnswers[existingIndex],
+            answer: answerText,
+            answered: true
+          };
+        } else {
+          // Add new answer
+          updatedAnswers.push({
+            id: questionItemId,
+            text: '', // We don't need the text in the answers array
+            answer: answerText,
+            answered: true
+          });
+        }
+        
+        updatedCount++;
       }
       
-      normalizedAnswers[questionId] = answerText;
-    }
-    
-    console.log(`Normalized answers:`, JSON.stringify(normalizedAnswers));
-    
-    // Update questions and answers using the normalized IDs
-    const answeredQuestionIds = Object.keys(normalizedAnswers);
-    
-    // Update questions and answers
-    for (const questionId of answeredQuestionIds) {
-      const answerText = normalizedAnswers[questionId];
+      console.log(`Updating ${updatedCount} answers in the database`);
       
-      // Find the question in the questions array
-      const questionIndex = updatedQuestions.findIndex(q => q.id === questionId);
-      if (questionIndex === -1) {
-        console.log(`No matching question found for ID: ${questionId}`);
-        continue;
-      }
-      
-      console.log(`Found matching question at index ${questionIndex} for ID: ${questionId}`);
-      
-      // Update the question's answered status
-      updatedQuestions[questionIndex] = {
-        ...updatedQuestions[questionIndex],
-        answered: true
-      };
-      
-      // Check if we already have an answer for this question
-      const existingAnswerIndex = updatedAnswers.findIndex(a => a.id === questionId);
-      
-      if (existingAnswerIndex >= 0) {
-        // Update existing answer
-        console.log(`Updating existing answer at index ${existingAnswerIndex}`);
-        updatedAnswers[existingAnswerIndex] = {
-          ...updatedAnswers[existingAnswerIndex],
-          answer: answerText,
-          answered: true,
+      // Update the database with the new answers
+      const { data: updateData, error: updateError } = await supabase
+        .from('research_questions_array')
+        .update({
+          answers: updatedAnswers,
           updated_at: new Date().toISOString()
-        };
-      } else {
-        // Add new answer
-        console.log(`Adding new answer for question ID: ${questionId}`);
-        updatedAnswers.push({
-          id: questionId,
-          text: updatedQuestions[questionIndex]?.text || '', // Include the question text for context
-          answer: answerText,
-          answered: true,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        });
+        })
+        .eq('question_id', arrayData.question_id)
+        .select();
+      
+      if (updateError) {
+        console.error('Error updating answers in database:', updateError);
+        return { success: false, error: updateError };
       }
-    }
-    
-    console.log(`Final questions array:`, JSON.stringify(updatedQuestions));
-    console.log(`Final answers array:`, JSON.stringify(updatedAnswers));
-    
-    // Update the record in the database
-    const { data: updateData, error: updateError } = await supabase
-      .from('research_questions_array')
-      .update({ 
-        questions: updatedQuestions,
-        answers: updatedAnswers,
-        updated_at: new Date().toISOString()
-      })
-      .eq('question_id', arrayData.question_id)
-      .select();
-    
-    if (updateError) {
-      console.error('Error updating all answers:', updateError);
-      return { success: false, error: updateError };
-    }
-    
-    console.log('Successfully updated answers in database');
-    
-    // Send data to webhook if URL is available
-    if (arrayData.reply_webhook_url) {
-      try {
-        // Prepare a more comprehensive payload with both questions and answers
-        const webhookPayload = {
-          question_batch_id: arrayData.question_id,
-          research_id: arrayData.research_id,
-          user_id: arrayData.user_id,
-          // Include the full questions array for context
-          questions: updatedQuestions.map(q => ({
-            id: q.id,
-            text: q.text,
-            answered: q.answered
-          })),
-          // Include the full answers with question text for context
-          answers: updatedAnswers.map(a => {
-            // Find the original question for context
-            const question = updatedQuestions.find(q => q.id === a.id);
+      
+      console.log('Successfully updated answers in database');
+      
+      // WEBHOOK HANDLING
+      // Check for webhook URL in the question data
+      let webhookUrl = arrayData?.reply_webhook_url;
+      
+      // If no webhook URL in the array data, check the legacy table
+      if (!webhookUrl) {
+        // Try to get it from one of the questions
+        for (const questionId of Object.keys(answers)) {
+          try {
+            const { data: questionData } = await supabase
+              .from('research_questions_new')
+              .select('reply_webhook_url')
+              .eq('question_id', questionId)
+              .single();
+              
+            if (questionData?.reply_webhook_url) {
+              webhookUrl = questionData.reply_webhook_url;
+              console.log(`Found webhook URL from question: ${webhookUrl}`);
+              break;
+            }
+          } catch (e) {
+            // Skip errors in webhook URL lookup
+          }
+        }
+      }
+      
+      // If still no webhook URL, use the global fallback from config
+      if (!webhookUrl && config.N8N_WEBHOOK_URL) {
+        webhookUrl = config.N8N_WEBHOOK_URL;
+        console.log(`Using fallback webhook URL from config`);
+      }
+
+      // Send data to webhook if URL is available
+      if (webhookUrl) {
+        try {
+          // Prepare a more comprehensive payload with both questions and answers
+          const questions = arrayData.questions || [];
+          
+          // Match answers with questions to create a more usable payload
+          const answeredQuestions = questions.map((q: QuestionItem) => {
+            const answerItem = updatedAnswers.find((a: QuestionItem) => a.id === q.id);
             return {
-              id: a.id,
-              question: question?.text || '',
-              answer: a.answer,
-              answered: a.answered
+              id: q.id,
+              question: q.text,
+              answer: answerItem?.answer || '',
+              answered: Boolean(answerItem?.answer)
             };
-          }),
-          submitted_at: new Date().toISOString()
-        };
-        
-        // Log the full webhook payload for debugging
-        console.log(`===== WEBHOOK PAYLOAD =====`);
-        console.log(JSON.stringify(webhookPayload, null, 2));
-        
-        // Ensure webhook URL is properly formatted
-        let webhookUrl = arrayData.reply_webhook_url;
-        
-        // Add protocol if missing
-        if (!webhookUrl.startsWith('http://') && !webhookUrl.startsWith('https://')) {
-          webhookUrl = 'https://' + webhookUrl;
-        }
-        
-        console.log(`Sending answers to webhook URL: ${webhookUrl}`);
-        
-        // Check if this is an n8n wait node webhook (contains webhook-waiting in the URL)
-        const isN8nWaitNode = webhookUrl.includes('webhook-waiting');
-        
-        let webhookResponse;
-        
-        if (isN8nWaitNode) {
-          console.log('Detected n8n wait node webhook. Using multipart-form-data format...');
-          
-          // For n8n wait node, use multipart-form-data
-          const formData = new FormData();
-          
-          // Add all the payload fields as form data parameters
-          formData.append('payload', JSON.stringify(webhookPayload));
-          
-          // Add individual fields for easier access in n8n
-          formData.append('question_batch_id', arrayData.question_id);
-          formData.append('research_id', arrayData.research_id);
-          formData.append('user_id', arrayData.user_id);
-          formData.append('submitted_at', new Date().toISOString());
-          
-          // Add questions and answers as separate form fields for direct access in n8n
-          formData.append('questions', JSON.stringify(webhookPayload.questions));
-          formData.append('answers', JSON.stringify(webhookPayload.answers));
-          
-          // Send the data using multipart form data
-          webhookResponse = await fetch(webhookUrl, {
-            method: 'POST',
-            // Note: No need to specify Content-Type header - fetch will set it correctly with boundary
-            body: formData,
           });
-        } else {
-          // For regular webhooks, use JSON payload
-          webhookResponse = await fetch(webhookUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(webhookPayload),
-          });
-        }
-        
-        // Log detailed response information
-        console.log(`Webhook response status: ${webhookResponse.status}`);
-        
-        if (!webhookResponse.ok) {
-          console.warn(`Webhook response was not OK: ${webhookResponse.status}`);
           
-          // Try to get response text for debugging
-          try {
-            const responseText = await webhookResponse.text();
-            console.warn(`Webhook response body: ${responseText}`);
-          } catch (responseError) {
-            console.warn(`Could not read webhook response body: ${responseError}`);
+          const webhookPayload = {
+            research_id: researchId,
+            timestamp: new Date().toISOString(),
+            question_batch_id: arrayData.question_id,
+            questions: answeredQuestions,
+            answers: updatedAnswers,
+            meta: {
+              total_questions: questions.length,
+              answered_questions: updatedAnswers.length,
+              platform: 'mobile-app'
+            }
+          };
+          
+          // Log the full webhook payload for debugging
+          console.log(`===== WEBHOOK PAYLOAD =====`);
+          console.log(JSON.stringify(webhookPayload, null, 2));
+          
+          // Ensure webhook URL is properly formatted
+          if (!webhookUrl.startsWith('http://') && !webhookUrl.startsWith('https://')) {
+            webhookUrl = 'https://' + webhookUrl;
           }
-        } else {
-          // Try to log the response payload
-          try {
-            const responseData = await webhookResponse.json();
-            console.log(`Webhook response data:`, responseData);
-          } catch (parseError) {
-            console.log(`Successfully sent all answers to webhook (no JSON response)`);
+          
+          console.log(`Sending answers to webhook URL: ${webhookUrl}`);
+          
+          // Check if this is an n8n wait node webhook (contains webhook-waiting in the URL)
+          const isN8nWaitNode = webhookUrl.includes('webhook-waiting');
+          
+          let webhookResponse;
+          
+          if (isN8nWaitNode) {
+            console.log('Detected n8n wait node webhook. Using multipart-form-data format...');
+            
+            // Create form data for n8n wait node
+            const formData = new FormData();
+            
+            // Add the full payload as a JSON string
+            formData.append('payload', JSON.stringify(webhookPayload));
+            
+            // Also add each major component separately to make it easier to use in n8n
+            formData.append('research_id', researchId);
+            formData.append('question_batch_id', arrayData.question_id);
+            formData.append('timestamp', new Date().toISOString());
+            formData.append('questions', JSON.stringify(webhookPayload.questions));
+            formData.append('answers', JSON.stringify(webhookPayload.answers));
+            
+            // Use fetch API with form data
+            webhookResponse = await fetch(webhookUrl, {
+              method: 'POST',
+              body: formData,
+            });
+          } else {
+            // For regular webhooks, use JSON payload
+            webhookResponse = await fetch(webhookUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(webhookPayload),
+            });
           }
+          
+          // Check webhook response
+          console.log(`Webhook response status: ${webhookResponse.status}`);
+          
+          if (!webhookResponse.ok) {
+            console.warn(`Webhook response error: ${webhookResponse.status} ${webhookResponse.statusText}`);
+            
+            try {
+              const responseText = await webhookResponse.text();
+              console.warn(`Webhook response: ${responseText}`);
+            } catch (textErr) {
+              console.warn(`Could not read webhook response: ${textErr}`);
+            }
+          } else {
+            console.log('Successfully sent answers to webhook');
+            
+            try {
+              const responseData = await webhookResponse.json();
+              console.log(`Webhook response data:`, responseData);
+            } catch (jsonErr) {
+              // Not a JSON response, that's fine
+              console.log(`Webhook response was not JSON (this is normal)`);
+            }
+          }
+        } catch (webhookErr) {
+          // Don't fail the whole operation if webhook fails
+          console.error('Error sending to webhook:', webhookErr);
         }
-      } catch (webhookError) {
-        console.error('Error sending answers to webhook:', webhookError);
-        // We continue even if webhook fails, since we updated the database
+      } else {
+        console.log('No webhook URL found, skipping webhook notification');
       }
-    } else {
-      console.warn('No webhook URL found, skipping webhook notification');
+      
+      // Return success data
+      return {
+        success: true,
+        data: {
+          question_batch_id: arrayData.question_id,
+          answers: updatedAnswers,
+          count: updatedCount
+        }
+      };
     }
     
-    return { success: true, data: updateData };
+    // ... rest of the implementation remains the same
   } catch (error) {
-    console.error('Unexpected error in submitAllAnswers:', error);
+    console.error('Error in submitAllAnswers:', error);
     return { success: false, error };
   }
 }

@@ -1,10 +1,16 @@
 import 'react-native-url-polyfill/auto';
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from '@env';
+import config from './config';
 
-if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-  throw new Error('Missing Supabase environment variables');
+// Validate that required environment variables are available
+if (!config.isConfigValid()) {
+  console.error('Missing Supabase configuration. Please check your environment variables.');
+}
+
+// Log config status in development mode
+if (__DEV__) {
+  config.logConfigStatus();
 }
 
 // Update the interface to specify research_id as a string
@@ -23,7 +29,7 @@ export interface ResearchData {
 }
 
 // Create a Supabase client
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+export const supabase = createClient(config.SUPABASE_URL, config.SUPABASE_ANON_KEY, {
   auth: {
     storage: AsyncStorage,
     autoRefreshToken: true,
