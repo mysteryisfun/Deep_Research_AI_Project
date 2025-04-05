@@ -23,6 +23,8 @@ type ThemeContextType = {
   theme: ThemeType;
   toggleTheme: () => void;
   isLoading: boolean;
+  themeMode: ThemeMode;
+  setThemeMode: (mode: ThemeMode) => void;
 };
 
 // Define theme colors and styles
@@ -54,21 +56,45 @@ export const darkTheme: ThemeType = {
   gradient: ['#2E3192', '#1BFFFF'],
 };
 
+export const cosmicTheme: ThemeType = {
+  background: '#050A18', // Deep space background
+  card: 'rgba(45, 52, 57, 0.45)', // Translucent card for glass effect
+  text: '#E0E0E0', // Pale moonlight for text
+  secondaryText: 'rgba(255, 255, 255, 0.7)', // Slightly dimmed text
+  accent: 'rgba(100, 255, 218, 0.7)', // Glacial teal accent
+  border: 'rgba(100, 255, 218, 0.15)', // Subtle glowing border
+  statusBar: 'light',
+  inputBackground: 'rgba(10, 17, 40, 0.6)', // Deep space input background
+  gradientStart: '#0A1128',
+  gradientEnd: '#050A18',
+  gradient: ['#0A1128', '#050A18'],
+};
+
+// Type for theme mode
+type ThemeMode = 'light' | 'dark' | 'cosmic';
+
 // Create the context with default values
 const ThemeContext = createContext<ThemeContextType>({
   isDarkMode: false,
   theme: lightTheme,
   toggleTheme: () => {},
-  isLoading: true
+  isLoading: true,
+  themeMode: 'light',
+  setThemeMode: () => {}
 });
 
 // Provider component that wraps the app
 export const ThemeProvider: React.FC<{children: React.ReactNode}> = ({ children }) => {
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [themeMode, setThemeModeState] = useState<ThemeMode>('light');
   
-  // Determine the active theme based on isDarkMode state
-  const theme = isDarkMode ? darkTheme : lightTheme;
+  // Determine the active theme based on themeMode state
+  const theme = themeMode === 'cosmic' 
+    ? cosmicTheme 
+    : themeMode === 'dark' 
+      ? darkTheme 
+      : lightTheme;
   
   // Load saved theme preference on startup
   useEffect(() => {
@@ -78,16 +104,27 @@ export const ThemeProvider: React.FC<{children: React.ReactNode}> = ({ children 
         
         if (storedTheme !== null) {
           // Use stored preference if available
-          setIsDarkMode(storedTheme === 'dark');
+          if (storedTheme === 'cosmic') {
+            setThemeModeState('cosmic');
+            setIsDarkMode(true);
+          } else if (storedTheme === 'dark') {
+            setThemeModeState('dark');
+            setIsDarkMode(true);
+          } else {
+            setThemeModeState('light');
+            setIsDarkMode(false);
+          }
         } else {
           // Otherwise use device preference
           const deviceTheme = Appearance.getColorScheme();
           setIsDarkMode(deviceTheme === 'dark');
+          setThemeModeState(deviceTheme === 'dark' ? 'dark' : 'light');
         }
       } catch (error) {
         console.error('Failed to load theme:', error);
         // Default to light theme if there's an error
         setIsDarkMode(false);
+        setThemeModeState('light');
       } finally {
         setIsLoading(false);
       }
@@ -101,6 +138,7 @@ export const ThemeProvider: React.FC<{children: React.ReactNode}> = ({ children 
       AsyncStorage.getItem('appTheme').then(storedTheme => {
         if (storedTheme === null) {
           setIsDarkMode(colorScheme === 'dark');
+          setThemeModeState(colorScheme === 'dark' ? 'dark' : 'light');
         }
       });
     });
@@ -110,20 +148,40 @@ export const ThemeProvider: React.FC<{children: React.ReactNode}> = ({ children 
     };
   }, []);
   
-  // Toggle theme and save preference
+  // Toggle between light and dark theme
   const toggleTheme = async () => {
     try {
       const newMode = !isDarkMode;
       setIsDarkMode(newMode);
-      await AsyncStorage.setItem('appTheme', newMode ? 'dark' : 'light');
+      const newThemeMode = newMode ? 'dark' : 'light';
+      setThemeModeState(newThemeMode);
+      await AsyncStorage.setItem('appTheme', newThemeMode);
     } catch (error) {
       console.error('Failed to save theme:', error);
+    }
+  };
+
+  // Set a specific theme mode
+  const setThemeMode = async (mode: ThemeMode) => {
+    try {
+      setThemeModeState(mode);
+      setIsDarkMode(mode !== 'light');
+      await AsyncStorage.setItem('appTheme', mode);
+    } catch (error) {
+      console.error('Failed to save theme mode:', error);
     }
   };
   
   // Provide theme context to children components
   return (
-    <ThemeContext.Provider value={{ isDarkMode, theme, toggleTheme, isLoading }}>
+    <ThemeContext.Provider value={{ 
+      isDarkMode, 
+      theme, 
+      toggleTheme, 
+      isLoading,
+      themeMode,
+      setThemeMode
+    }}>
       {children}
     </ThemeContext.Provider>
   );

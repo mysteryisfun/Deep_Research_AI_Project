@@ -213,15 +213,17 @@ export default function PrivacySecurityScreen() {
           transition={{ type: 'timing', duration: 600, delay: 200 }}
           style={[styles.section, { backgroundColor: theme.card }]}
         >
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>
-            Data & Privacy
-          </Text>
+          <View style={styles.sectionHeader}>
+            <MaterialIcons name="article" size={24} color={theme.text} />
+            <Text style={[styles.sectionTitle, { color: theme.text, marginLeft: 10 }]}>
+              Legal & Help
+            </Text>
+          </View>
 
           <TouchableOpacity 
             style={styles.settingRow}
             onPress={() => {
-              // Implement privacy policy navigation
-              toast.info('Opening privacy policy...');
+              navigation.navigate('LegalInfoScreen', { section: 'privacy' });
             }}
           >
             <View style={styles.settingInfo}>
@@ -240,8 +242,7 @@ export default function PrivacySecurityScreen() {
           <TouchableOpacity 
             style={styles.settingRow}
             onPress={() => {
-              // Implement terms of service navigation
-              toast.info('Opening terms of service...');
+              navigation.navigate('LegalInfoScreen', { section: 'terms' });
             }}
           >
             <View style={styles.settingInfo}>
@@ -256,22 +257,40 @@ export default function PrivacySecurityScreen() {
             </View>
             <MaterialIcons name="chevron-right" size={24} color={theme.secondaryText} />
           </TouchableOpacity>
-
+          
           <TouchableOpacity 
             style={styles.settingRow}
             onPress={() => {
-              // Implement data download
-              toast.info('Preparing your data for download...');
+              navigation.navigate('HelpCenterScreen');
             }}
           >
             <View style={styles.settingInfo}>
               <MaterialIcons 
-                name="cloud-download" 
+                name="help-outline" 
                 size={24} 
                 color={theme.text} 
               />
               <Text style={[styles.settingText, { color: theme.text }]}>
-                Download My Data
+                Help Center
+              </Text>
+            </View>
+            <MaterialIcons name="chevron-right" size={24} color={theme.secondaryText} />
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={styles.settingRow}
+            onPress={() => {
+              navigation.navigate('LegalInfoScreen', { section: 'contact' });
+            }}
+          >
+            <View style={styles.settingInfo}>
+              <MaterialIcons 
+                name="people" 
+                size={24} 
+                color={theme.text} 
+              />
+              <Text style={[styles.settingText, { color: theme.text }]}>
+                Contact Our Team
               </Text>
             </View>
             <MaterialIcons name="chevron-right" size={24} color={theme.secondaryText} />
@@ -351,5 +370,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginLeft: 12,
     color: '#e74c3c',
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
   },
 });

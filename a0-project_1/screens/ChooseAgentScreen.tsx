@@ -4,7 +4,6 @@ import {
   Text, 
   StyleSheet, 
   TouchableOpacity, 
-  ImageBackground,
   ScrollView,
   Animated,
   Dimensions
@@ -81,6 +80,9 @@ const AgentCard = ({ agent, isSelected, onSelect, index }) => {
     }).start();
   };
   
+  // Get base color from the first color in the gradient array
+  const baseColor = agent.colors[0];
+  
   return (
     <MotiView
       from={{ opacity: 0, translateY: 30 }}
@@ -108,11 +110,11 @@ const AgentCard = ({ agent, isSelected, onSelect, index }) => {
             { transform: [{ scale: scaleAnim }] }
           ]}
         >
-          <LinearGradient
-            colors={agent.colors}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.cardGradient}
+          <View 
+            style={[
+              styles.cardContent,
+              { backgroundColor: `${baseColor}20` } // 20 is hex for 12% opacity
+            ]}
           >
             <View style={styles.cardIconContainer}>
               {agent.icon}
@@ -128,13 +130,13 @@ const AgentCard = ({ agent, isSelected, onSelect, index }) => {
             
             <View style={styles.capabilitiesContainer}>
               {agent.capabilities.map((capability, idx) => (
-                <View key={idx} style={styles.capabilityBadge}>
+                <View key={idx} style={[styles.capabilityBadge, { backgroundColor: `${baseColor}15` }]}>
                   <MaterialIcons name="check-circle" size={12} color="#fff" style={styles.capabilityIcon} />
                   <Text style={styles.capabilityText}>{capability}</Text>
                 </View>
               ))}
             </View>
-          </LinearGradient>
+          </View>
         </Animated.View>
       </TouchableOpacity>
     </MotiView>
@@ -175,7 +177,7 @@ export default function ChooseAgentScreen() {
     <SafeAreaView style={styles.container}>
       <StatusBar style="light" />
       
-      {/* Header */}
+      {/* Simplified Header */}
       <View style={styles.header}>
         <TouchableOpacity 
           style={styles.backButton}
@@ -184,35 +186,12 @@ export default function ChooseAgentScreen() {
           <MaterialIcons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         
-        <View style={styles.logoContainer}>
-          <MaterialIcons name="science" size={24} color="#fff" />
-          <Text style={styles.logoText}>Royal Research</Text>
+        <View style={styles.headerTitle}>
+          {/* Removed Choose Agent text */}
         </View>
         
         <View style={styles.rightPlaceholder} />
       </View>
-      
-      <ImageBackground 
-        source={{ uri: 'https://api.a0.dev/assets/image?text=futuristic%20AI%20research%20lab%20with%20holographic%20displays&aspect=16:9&seed=123' }}
-        style={styles.bannerImage}
-        imageStyle={styles.bannerImageStyle}
-      >
-        <LinearGradient
-          colors={['rgba(58, 28, 113, 0.7)', 'rgba(58, 28, 113, 0.85)']}
-          style={styles.bannerGradient}
-        >
-          <MotiView
-            from={{ opacity: 0, translateY: 20 }}
-            animate={{ opacity: 1, translateY: 0 }}
-            transition={{ type: 'timing', duration: 800 }}
-          >
-            <Text style={styles.screenTitle}>Select a Research Agent</Text>
-            <Text style={styles.screenSubtitle}>
-              Choose an AI specialist to assist with your research
-            </Text>
-          </MotiView>
-        </LinearGradient>
-      </ImageBackground>
       
       <ScrollView 
         style={styles.content}
@@ -269,15 +248,10 @@ export default function ChooseAgentScreen() {
           onPress={handleContinue}
           style={styles.continueButton}
         >
-          <LinearGradient
-            colors={['#3a1c71', '#d76d77', '#ffaf7b']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={styles.continueButtonGradient}
-          >
+          <View style={styles.continueButtonContent}>
             <Text style={styles.continueButtonText}>Continue with {selectedAgent ? agentData.find(a => a.id === selectedAgent).name : 'Selected Agent'}</Text>
             <MaterialIcons name="arrow-forward" size={20} color="#fff" />
-          </LinearGradient>
+          </View>
         </TouchableOpacity>
       </Animated.View>
     </SafeAreaView>
@@ -290,72 +264,27 @@ const cardWidth = (width - 40) / 2; // Always show in 2x2 grid
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0F172A', // Dark theme background
+    backgroundColor: '#050A14', // Darker background matching DashboardScreen
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: 'transparent',
-    zIndex: 10,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
   },
   backButton: {
     padding: 8,
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 12,
   },
-  logoContainer: {
-    flexDirection: 'row',
+  headerTitle: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-  },
-  logoText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#fff',
-    marginLeft: 8,
   },
   rightPlaceholder: {
-    width: 36,
-    height: 36,
-  },
-  bannerImage: {
-    height: 180,
-    width: '100%',
-  },
-  bannerImageStyle: {
-    borderBottomLeftRadius: 30,
-    borderBottomRightRadius: 30,
-  },
-  bannerGradient: {
-    flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-    borderBottomLeftRadius: 30,
-    borderBottomRightRadius: 30,
-    backgroundColor: 'rgba(15, 23, 42, 0.7)', // Darker overlay
-  },
-  screenTitle: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 12,
-    textShadowColor: 'rgba(108, 99, 255, 0.5)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 4,
-  },
-  screenSubtitle: {
-    fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.9)',
-    textShadowColor: 'rgba(0, 0, 0, 0.3)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
-    lineHeight: 24,
+    width: 40,
   },
   content: {
     flex: 1,
@@ -426,29 +355,30 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.1)',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.15, // Reduced shadow opacity
     shadowRadius: 12,
-    elevation: 8,
+    elevation: 5, // Reduced elevation
   },
-  cardGradient: {
+  cardContent: {
     padding: 20,
     alignItems: 'center',
     minHeight: 220,
+    // backgroundColor set dynamically
   },
   cardIconContainer: {
     position: 'relative',
     width: 70,
     height: 70,
     borderRadius: 35,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)', // More translucent
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
-    borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+    borderWidth: 1, // Reduced from 2
+    borderColor: 'rgba(255, 255, 255, 0.15)', // More translucent
     shadowColor: '#fff',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.1, // Reduced shadow
     shadowRadius: 4,
   },
   selectedIndicator: {
@@ -474,7 +404,7 @@ const styles = StyleSheet.create({
     color: '#fff',
     textAlign: 'center',
     marginBottom: 8,
-    textShadowColor: 'rgba(108, 99, 255, 0.5)',
+    textShadowColor: 'rgba(0, 0, 0, 0.3)', // Subtle text shadow
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 2,
   },
@@ -491,13 +421,13 @@ const styles = StyleSheet.create({
   capabilityBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    // backgroundColor set dynamically
     borderRadius: 12,
     paddingVertical: 6,
     paddingHorizontal: 10,
     marginBottom: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   capabilityIcon: {
     marginRight: 6,
@@ -520,13 +450,16 @@ const styles = StyleSheet.create({
     height: 56,
     borderRadius: 28,
     overflow: 'hidden',
+    backgroundColor: 'rgba(108, 99, 255, 0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(108, 99, 255, 0.3)',
     shadowColor: '#6c63ff',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.2,
     shadowRadius: 12,
-    elevation: 8,
+    elevation: 5,
   },
-  continueButtonGradient: {
+  continueButtonContent: {
     flex: 1,
     flexDirection: 'row',
     justifyContent: 'center',

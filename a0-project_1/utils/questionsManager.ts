@@ -1,5 +1,4 @@
 import { supabase, generateEntityId } from './supabase';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 /**
  * Interface for individual question data
@@ -41,266 +40,78 @@ export interface ResearchQuestion {
 }
 
 /**
- * Helper function to check if a Supabase table exists
- * @param tableName The name of the table to check
- * @returns Boolean indicating if the table exists
- */
-export async function checkTableExists(tableName: string): Promise<boolean> {
-  try {
-    // Try to get a single row from the table
-    const { data, error } = await supabase
-      .from(tableName)
-      .select('*')
-      .limit(1);
-    
-    if (error && error.code === 'PGRST116') {
-      // Table doesn't exist
-      return false;
-    }
-    
-    return true;
-  } catch (error) {
-    console.error(`Error checking if table ${tableName} exists:`, error);
-    return false;
-  }
-}
-
-/**
- * Direct function to fetch questions from Supabase
- * This is the new recommended approach for better performance
- * 
+ * Fetches questions for a specific research ID from the new array-based table
  * @param researchId The ID of the research to fetch questions for
- * @param userId Optional user ID to filter questions
- * @returns Array of research questions
+ * @returns Array of research questions in the old format for compatibility
  */
-export async function directFetchQuestions(
-  researchId: string,
-  userId?: string
-): Promise<ResearchQuestion[]> {
+export async function fetchQuestions(researchId: string): Promise<ResearchQuestion[]> {
   try {
-    console.log(`Directly fetching questions for research: ${researchId}`);
+    console.log(`Fetching questions for research: ${researchId}`);
     
-    // First try the array-based table (research_questions_array)
-    const { data: batchData, error: batchError } = await supabase
+    // First try the new array-based table
+    const { data: arrayData, error: arrayError } = await supabase
       .from('research_questions_array')
-      .select('*')
-      .eq('research_id', researchId)
-      .maybeSingle();
-    
-    if (batchError && batchError.code !== 'PGRST116') {
-      console.error('Error fetching question batch:', batchError);
-      throw batchError;
-    }
-    
-    let questionsArray: ResearchQuestion[] = [];
-    
-    if (batchData && batchData.questions && Array.isArray(batchData.questions)) {
-      console.log(`Found batch with ${batchData.questions.length} questions`);
-      
-      // Format the questions from the batch
-      questionsArray = batchData.questions.map((q: any, index: number) => ({
-        question_id: q.id || `${batchData.question_id}-q${index + 1}`,
-        research_id: researchId,
-        user_id: userId || batchData.user_id,
-        question: q.text || q.question,
-        answer: q.answer || null,
-        answered: !!q.answer,
-        created_at: batchData.created_at || new Date().toISOString()
-      }));
-    } else {
-      // Fallback to direct questions if no batch is found
-      const { data: directQuestions, error: directError } = await supabase
-        .from('research_questions')
       .select('*')
       .eq('research_id', researchId)
       .order('created_at', { ascending: true });
     
-      if (directError) {
-        console.error('Error fetching direct questions:', directError);
-        // Continue with an empty array, don't throw error
+    if (!arrayError && arrayData && arrayData.length > 0) {
+      console.log(`Fetched questions from array table for research: ${researchId}`);
+      
+      // Convert the array-based format to the old format for compatibility
+      let flattenedQuestions: ResearchQuestion[] = [];
+      
+      for (const record of arrayData) {
+        const questions = record.questions || [];
+        const answers = record.answers || [];
+        
+        // Map questions to the old format
+        const convertedQuestions = questions.map((q: QuestionItem, index: number) => {
+          // Find matching answer if exists
+          const matchingAnswer = answers.find((a: QuestionItem) => a.id === q.id);
+          
+          return {
+            question_id: `${record.question_id}-${q.id || index}`,
+            research_id: record.research_id,
+            user_id: record.user_id,
+            question: q.text,
+            answer: matchingAnswer?.answer || undefined,
+            answered: matchingAnswer?.answered || false,
+            reply_webhook_url: record.reply_webhook_url,
+            created_at: record.created_at
+          };
+        });
+        
+        flattenedQuestions = [...flattenedQuestions, ...convertedQuestions];
       }
       
-      if (directQuestions && directQuestions.length > 0) {
-        console.log(`Found ${directQuestions.length} direct questions`);
-        questionsArray = directQuestions;
-      }
+      console.log(`Converted ${flattenedQuestions.length} questions to legacy format`);
+      return flattenedQuestions;
     }
     
-    return questionsArray;
+    // Fall back to the old table if needed
+    console.log(`Falling back to legacy table for research: ${researchId}`);
+    const { data, error } = await supabase
+      .from('research_questions_new')
+      .select('*')
+      .eq('research_id', researchId)
+      .order('created_at', { ascending: true });
+    
+    if (error) {
+      console.error('Error fetching questions:', error);
+      return [];
+    }
+    
+    console.log(`Fetched ${data.length} questions from legacy table for research: ${researchId}`);
+    return data as ResearchQuestion[];
   } catch (error) {
-    console.error('Unexpected error in directFetchQuestions:', error);
+    console.error('Unexpected error in fetchQuestions:', error);
     return [];
   }
 }
 
 /**
- * Direct function to submit answers to Supabase
- * This is the new recommended approach for better performance
- * 
- * @param researchId The ID of the research to submit answers for
- * @param answers Object mapping question IDs to answer strings
- * @returns Object with success flag and data or error
- */
-export async function directSubmitAnswers(
-  researchId: string,
-  answers: Record<string, string>
-): Promise<{ success: boolean; data?: any; error?: any }> {
-  try {
-    console.log(`Directly submitting answers for research: ${researchId}`);
-    
-    // For each answer, insert or update in the database
-    const allSubmissions = Object.entries(answers).map(async ([questionId, answer]) => {
-      if (!answer || answer.trim() === '') return null;
-      
-      // Determine if we should update research_questions_array or direct questions
-      if (questionId.includes('-q')) {
-        // This is a batch question, update the batch
-        const batchId = questionId.split('-q')[0];
-        const questionIndex = parseInt(questionId.split('-q')[1]) - 1;
-        
-        // Get the current batch
-        const { data: currentBatch, error: getBatchError } = await supabase
-          .from('research_questions_array')
-          .select('*')
-          .eq('question_id', batchId)
-          .single();
-        
-        if (getBatchError) {
-          console.error('Error getting batch for update:', getBatchError);
-          throw getBatchError;
-        }
-        
-        if (currentBatch && currentBatch.questions) {
-          // Update the specific question in the batch
-          const updatedQuestions = [...currentBatch.questions];
-          if (updatedQuestions[questionIndex]) {
-            updatedQuestions[questionIndex].answer = answer;
-            
-            // Update the batch in the database
-            const { error: updateError } = await supabase
-              .from('research_questions_array')
-              .update({
-                questions: updatedQuestions
-              })
-              .eq('question_id', batchId);
-            
-            if (updateError) {
-              console.error('Error updating batch questions:', updateError);
-              throw updateError;
-            }
-          
-          return {
-              question_id: questionId,
-              answer
-            };
-          }
-        }
-      } else {
-        // Direct question, update research_questions table if it exists
-        try {
-          const { error: updateError } = await supabase
-            .from('research_questions')
-            .update({
-              answer,
-              answered: true
-            })
-            .eq('question_id', questionId);
-          
-          if (updateError) {
-            console.error('Error updating direct question:', updateError);
-            // Don't throw here as the table might not exist
-          }
-          
-          return {
-            question_id: questionId,
-            answer
-          };
-        } catch (updateErr) {
-          console.error('Error in direct question update:', updateErr);
-          // Continue with the next question
-        }
-      }
-      
-      return null;
-    });
-    
-    // Wait for all submissions to complete
-    const results = await Promise.all(allSubmissions);
-    const successfulSubmissions = results.filter(Boolean);
-    
-    console.log(`Successfully submitted ${successfulSubmissions.length} answers`);
-    
-    return {
-      success: successfulSubmissions.length > 0,
-      data: { answers: successfulSubmissions },
-      error: successfulSubmissions.length === 0 ? { message: 'No answers were successfully submitted' } : null
-    };
-  } catch (error) {
-    console.error('Error in directSubmitAnswers:', error);
-    return {
-      success: false,
-      error
-    };
-  }
-}
-
-/**
- * Direct function to set up real-time monitoring for questions
- * This is the new recommended approach for better performance
- * 
- * @param researchId The ID of the research to monitor
- * @param callback Function to call when questions change
- * @returns Function to call to stop monitoring
- */
-export function directMonitorQuestions(
-  researchId: string,
-  callback: (questions: ResearchQuestion[]) => void
-): () => void {
-  console.log(`Setting up direct real-time monitoring for research ID: ${researchId}`);
-  
-  // Create and subscribe to a channel for research_questions_array
-  const questionsChannel = supabase
-    .channel(`research_questions:${researchId}`)
-    .on(
-      'postgres_changes',
-      {
-        event: '*',
-        schema: 'public',
-        table: 'research_questions_array',
-        filter: `research_id=eq.${researchId}`
-      },
-      async (payload: any) => {
-        console.log('Question change received:', payload);
-        
-        // Handle different event types
-        if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-          // Refresh questions and call the callback
-          const updatedQuestions = await directFetchQuestions(researchId);
-          callback(updatedQuestions);
-        }
-      }
-    )
-    .subscribe();
-  
-  // Return a function to stop monitoring
-  return () => {
-    console.log(`Stopping direct real-time monitoring for research ID: ${researchId}`);
-    supabase.removeChannel(questionsChannel);
-  };
-}
-
-/**
- * LEGACY: Fetches questions for a specific research ID from the new array-based table
- * @param researchId The ID of the research to fetch questions for
- * @returns Array of research questions in the old format for compatibility
- */
-export async function fetchQuestions(researchId: string): Promise<ResearchQuestion[]> {
-  // Use the new direct function with backward compatibility
-  return directFetchQuestions(researchId);
-}
-
-/**
- * LEGACY: Stores an answer for a specific question
+ * Stores an answer for a specific question
  * @param questionId The ID of the question to answer
  * @param answer The answer to store
  * @returns Success flag and data or error
@@ -414,48 +225,179 @@ export async function submitAnswer(questionId: string, answer: string): Promise<
         }
       }
       
-      // If both previous attempts fail, try using directSubmitAnswers
+      // Third try - If both previous attempts fail, try minimal approach
       if (updateError) {
-        console.log('STEP 3: Both attempts failed, trying directSubmitAnswers...');
+        console.log('STEP 3: Both attempts failed, trying minimal approach...');
         
-        const answers: Record<string, string> = { [questionId]: answer };
+        // Create a very simple answers array with just this answer
+        const minimalAnswers = [{
+          id: questionItemId,
+          answer,
+          answered: true
+        }];
         
-        try {
-          const result = await directSubmitAnswers(baseQuestionId, answers);
-          updateData = result.data;
-          updateError = result.error;
+        // Update the record with just the answers
+        const minimalResult = await supabase
+          .from('research_questions_array')
+          .update({ 
+            answers: minimalAnswers,
+            updated_at: new Date().toISOString()
+          })
+          .eq('question_id', baseQuestionId)
+          .select();
         
-          if (result.success) {
-            console.log('3️⃣ directSubmitAnswers success!');
-              return {
-              success: true,
-              data: updateData
-            };
-          } else {
-            console.error('3️⃣ directSubmitAnswers error:', updateError);
-          }
-        } catch (directError) {
-          console.error('3️⃣ directSubmitAnswers exception:', directError);
-          updateError = { message: directError.message };
-            }
-          }
-      
-      // Return the result
-      if (updateError) {
-        return {
-          success: false,
-          error: updateError
-        };
+        updateData = minimalResult.data?.[0];
+        updateError = minimalResult.error;
+        
+        if (updateError) {
+          console.error('3️⃣ Minimal update error:', updateError);
+          return { success: false, error: updateError };
+        } else {
+          console.log('3️⃣ Minimal update success!');
+        }
       }
       
-      return {
-        success: true,
-        data: updateData
-      };
+      // STEP 2: Handle webhook notification
+      
+      // If we got here, one of the update methods worked
+      console.log('Update successful. Current answers:', JSON.stringify(updateData?.answers, null, 2));
+      
+      // Check for webhook
+      if (currentRecord.reply_webhook_url) {
+        try {
+          // Find the original question text from the questions array
+          const questions = currentRecord.questions || [];
+          const questionItem = questions.find((q: QuestionItem) => q.id === questionItemId);
+          
+          // Create a more comprehensive payload that includes all questions and answers
+          const webhookPayload = {
+            // Include original single answer data for backward compatibility
+            question_id: questionId,
+            question_item_id: questionItemId,
+            research_id: currentRecord.research_id,
+            question: questionItem?.text || '',
+            answer,
+            
+            // Include the full batch data for n8n compatibility
+            question_batch_id: baseQuestionId,
+            user_id: currentRecord.user_id,
+            
+            // Include all questions and answers for context
+            questions: questions.map(q => ({
+              id: q.id,
+              text: q.text,
+              answered: updateData?.answers?.some((a: QuestionItem) => a.id === q.id) || false
+            })),
+            
+            // Include all answers
+            answers: updateData?.answers?.map((a: QuestionItem) => {
+              // Find the original question for context
+              const q = questions.find(q => q.id === a.id);
+              return {
+                id: a.id,
+                question: q?.text || '',
+                answer: a.answer,
+                answered: a.answered
+              };
+            }) || [],
+            
+            submitted_at: new Date().toISOString()
+          };
+          
+          // Log the full webhook payload for debugging
+          console.log(`===== WEBHOOK PAYLOAD =====`);
+          console.log(JSON.stringify(webhookPayload, null, 2));
+          
+          // Ensure webhook URL is properly formatted
+          let webhookUrl = currentRecord.reply_webhook_url;
+          
+          // Add protocol if missing
+          if (!webhookUrl.startsWith('http://') && !webhookUrl.startsWith('https://')) {
+            webhookUrl = 'https://' + webhookUrl;
+          }
+          
+          console.log(`Sending answer to webhook URL: ${webhookUrl}`);
+          
+          // Check if this is an n8n wait node webhook (contains webhook-waiting in the URL)
+          const isN8nWaitNode = webhookUrl.includes('webhook-waiting');
+          
+          let webhookResponse;
+          
+          if (isN8nWaitNode) {
+            console.log('Detected n8n wait node webhook. Using multipart-form-data format...');
+            
+            // For n8n wait node, use multipart-form-data
+            const formData = new FormData();
+            
+            // Add the original fields for backward compatibility
+            formData.append('question_id', questionId);
+            formData.append('question_item_id', questionItemId);
+            formData.append('research_id', currentRecord.research_id);
+            formData.append('question', questionItem?.text || '');
+            formData.append('answer', answer);
+            
+            // Add the full payload for advanced processing
+            formData.append('payload', JSON.stringify(webhookPayload));
+            
+            // Add individual fields for easier access in n8n
+            formData.append('question_batch_id', baseQuestionId);
+            formData.append('user_id', currentRecord.user_id);
+            formData.append('submitted_at', new Date().toISOString());
+            
+            // Add questions and answers as separate form fields for direct access
+            formData.append('questions', JSON.stringify(webhookPayload.questions));
+            formData.append('answers', JSON.stringify(webhookPayload.answers));
+            
+            // Send the data using multipart form data
+            webhookResponse = await fetch(webhookUrl, {
+              method: 'POST',
+              // Note: No need to specify Content-Type header - fetch will set it correctly with boundary
+              body: formData,
+            });
+          } else {
+            // For regular webhooks, use JSON payload
+            webhookResponse = await fetch(currentRecord.reply_webhook_url, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(webhookPayload),
+            });
+          }
+          
+          if (!webhookResponse.ok) {
+            console.warn(`Webhook response was not OK: ${webhookResponse.status}`);
+            
+            // Try to get response text for debugging
+            try {
+              const responseText = await webhookResponse.text();
+              console.warn(`Webhook response body: ${responseText}`);
+            } catch (responseError) {
+              console.warn(`Could not read webhook response body: ${responseError}`);
+            }
+          } else {
+            console.log('Successfully sent answer to webhook');
+            
+            // Try to log the response payload
+            try {
+              const responseData = await webhookResponse.json();
+              console.log(`Webhook response data:`, responseData);
+            } catch (parseError) {
+              console.log(`Successfully sent answer to webhook (no JSON response)`);
+            }
+          }
+        } catch (webhookError) {
+          console.error('Error sending answer to webhook:', webhookError);
+          // We continue even if webhook fails, since we updated the database
+        }
+      }
+      
+      return { success: true, data: updateData };
     } else {
-      // Legacy format - single question in the research_questions table
+      // Legacy format - single question per row
+      // 1. Update the question in Supabase
       const { data, error } = await supabase
-        .from('research_questions')
+        .from('research_questions_new')
         .update({ 
           answer, 
           answered: true 
@@ -464,64 +406,107 @@ export async function submitAnswer(questionId: string, answer: string): Promise<
         .select();
       
       if (error) {
-        console.error('Error updating question answer:', error);
+        console.error('Error submitting answer:', error);
         return { success: false, error };
       }
       
-      return {
-        success: true,
-        data
-      };
+      // 2. Check if there's a webhook URL to call
+      const question = data[0] as ResearchQuestion;
+      if (question.reply_webhook_url) {
+        try {
+          // Send the answer to the webhook
+          const webhookResponse = await fetch(question.reply_webhook_url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              question_id: questionId,
+              research_id: question.research_id,
+              answer
+            }),
+          });
+          
+          if (!webhookResponse.ok) {
+            console.warn(`Webhook response was not OK: ${webhookResponse.status}`);
+          } else {
+            console.log('Successfully sent answer to webhook');
+          }
+        } catch (webhookError) {
+          console.error('Error sending answer to webhook:', webhookError);
+          // We continue even if webhook fails, since we updated the database
+        }
+      }
+      
+      console.log('Successfully submitted answer');
+      return { success: true, data };
     }
   } catch (error) {
     console.error('Unexpected error in submitAnswer:', error);
-    return {
-      success: false,
-      error
-    };
+    return { success: false, error };
   }
 }
 
 /**
- * LEGACY: Sets up monitoring for new questions
+ * Sets up a polling mechanism to monitor for new questions
  * @param researchId The ID of the research to monitor
- * @param onQuestionsUpdate Callback function to call when questions are updated
- * @param pollingInterval Optional polling interval in milliseconds
- * @returns Function to call to stop monitoring
+ * @param onQuestionsUpdate Callback function when questions are updated
+ * @param pollingInterval Interval in ms between polls (default: 2000ms)
+ * @returns A function to stop the polling
  */
 export function monitorQuestions(
   researchId: string,
   onQuestionsUpdate: (questions: ResearchQuestion[]) => void,
   pollingInterval = 2000
 ): () => void {
-  // Use the new direct approach for better performance
-  return directMonitorQuestions(researchId, onQuestionsUpdate);
-}
-
-/**
- * LEGACY: Submits multiple answers at once
- * @param researchId The ID of the research the answers are for
- * @param answers Object mapping question IDs to answer strings
- * @returns Success flag and data or error
- */
-export async function submitAllAnswers(
-  researchId: string,
-  answers: Record<string, string>
-): Promise<{ success: boolean; data?: any; error?: any }> {
-  // Use the new direct approach
-  return directSubmitAnswers(researchId, answers);
+  console.log(`Starting question monitoring for research: ${researchId}`);
+  
+  let lastQuestionCount = 0;
+  let isActive = true;
+  
+  // Function to check for new questions
+  const checkForQuestions = async () => {
+    if (!isActive) return;
+    
+    try {
+      const questions = await fetchQuestions(researchId);
+      
+      // Check if there are any changes
+      if (questions.length !== lastQuestionCount) {
+        console.log(`Questions updated: ${lastQuestionCount} → ${questions.length}`);
+        lastQuestionCount = questions.length;
+        onQuestionsUpdate(questions);
+      }
+    } catch (error) {
+      console.error('Error in question monitoring:', error);
+    }
+    
+    // Schedule the next check if still active
+    if (isActive) {
+      setTimeout(checkForQuestions, pollingInterval);
+    }
+  };
+  
+  // Start the initial check
+  checkForQuestions();
+  
+  // Return a function to stop the polling
+  return () => {
+    console.log(`Stopping question monitoring for research: ${researchId}`);
+    isActive = false;
+  };
 }
 
 /**
  * Creates a batch of test questions for testing purposes
  * @param researchId The ID of the research to create questions for
- * @param userId The user ID (optional, will fetch from AsyncStorage if not provided)
+ * @param userId The user ID
  * @param questionTexts Array of question texts to create
  * @returns The created questions record
  */
 export async function createBatchTestQuestions(
   researchId: string, 
-  userId?: string,
+  userId: string,
   questionTexts: string[]
 ): Promise<ResearchQuestionArray | null> {
   try {
@@ -529,26 +514,6 @@ export async function createBatchTestQuestions(
     if (!questionTexts || questionTexts.length === 0) {
       console.error('No question texts provided for batch creation');
       return null;
-    }
-    
-    // If no userId is provided, try to get it from AsyncStorage
-    let userIdToUse = userId;
-    if (!userIdToUse) {
-      try {
-        userIdToUse = await AsyncStorage.getItem('user_id');
-        if (!userIdToUse) {
-          // Generate a temporary user ID if none exists
-          userIdToUse = generateEntityId('user');
-          console.log('Generated temporary user ID for batch test questions:', userIdToUse);
-        } else {
-          console.log('Using stored user ID from AsyncStorage for batch test questions:', userIdToUse);
-        }
-      } catch (error) {
-        console.error('Error retrieving user ID from AsyncStorage:', error);
-        // Fall back to generating a temporary ID
-        userIdToUse = generateEntityId('user');
-        console.log('Generated fallback user ID due to AsyncStorage error:', userIdToUse);
-      }
     }
     
     const questionId = generateEntityId('question-batch');
@@ -563,7 +528,7 @@ export async function createBatchTestQuestions(
     const questionData = {
       question_id: questionId,
       research_id: researchId,
-      user_id: userIdToUse,
+      user_id: userId,
       questions: questionItems,
       answers: [],
       created_at: new Date().toISOString(),
@@ -589,37 +554,17 @@ export async function createBatchTestQuestions(
 }
 
 /**
- * Creates a test question for testing purposes
+ * Creates a single test question (legacy format)
  * @param researchId The ID of the research to create a question for
- * @param userId The user ID (optional, will fetch from AsyncStorage if not provided)
+ * @param userId The user ID
  * @returns The created question
  */
-export async function createTestQuestion(researchId: string, userId?: string): Promise<ResearchQuestion | null> {
+export async function createTestQuestion(researchId: string, userId: string): Promise<ResearchQuestion | null> {
   try {
-    // If no userId is provided, try to get it from AsyncStorage
-    let userIdToUse = userId;
-    if (!userIdToUse) {
-      try {
-        userIdToUse = await AsyncStorage.getItem('user_id');
-        if (!userIdToUse) {
-          // Generate a temporary user ID if none exists
-          userIdToUse = generateEntityId('user');
-          console.log('Generated temporary user ID for test question:', userIdToUse);
-        } else {
-          console.log('Using stored user ID from AsyncStorage for test question:', userIdToUse);
-        }
-      } catch (error) {
-        console.error('Error retrieving user ID from AsyncStorage:', error);
-        // Fall back to generating a temporary ID
-        userIdToUse = generateEntityId('user');
-        console.log('Generated fallback user ID due to AsyncStorage error:', userIdToUse);
-      }
-    }
-    
     const questionData = {
       question_id: generateEntityId('question'),
       research_id: researchId,
-      user_id: userIdToUse,
+      user_id: userId,
       question: `Test question created at ${new Date().toISOString()}`,
       answered: false,
       created_at: new Date().toISOString()
@@ -639,6 +584,266 @@ export async function createTestQuestion(researchId: string, userId?: string): P
   } catch (error) {
     console.error('Unexpected error in createTestQuestion:', error);
     return null;
+  }
+}
+
+/**
+ * Submits all answers at once for a given research ID
+ * @param researchId The ID of the research to submit answers for
+ * @param answers Record mapping question IDs to their answers
+ * @returns Success flag and data or error
+ */
+export async function submitAllAnswers(
+  researchId: string,
+  answers: Record<string, string>
+): Promise<{ success: boolean; data?: any; error?: any }> {
+  try {
+    console.log(`Submitting all answers for research: ${researchId}`);
+    console.log(`Raw answers received:`, JSON.stringify(answers));
+    
+    // Get the current questions for this research
+    const { data: arrayData, error: arrayError } = await supabase
+      .from('research_questions_array')
+      .select('*')
+      .eq('research_id', researchId)
+      .single();
+    
+    if (arrayError) {
+      console.error('Error fetching research question batch:', arrayError);
+      return { success: false, error: arrayError };
+    }
+    
+    if (!arrayData) {
+      console.error('No research question batch found');
+      return { success: false, error: 'No question batch found' };
+    }
+    
+    const currentQuestions = arrayData.questions || [];
+    const currentAnswers = arrayData.answers || [];
+    
+    console.log(`Found question batch with ID: ${arrayData.question_id}`);
+    console.log(`Current questions: ${currentQuestions.length}, Current answers: ${currentAnswers.length}`);
+    
+    // Process each answer - Handle both formats:
+    // 1. Direct question IDs (q1, q2, etc.)
+    // 2. Combined IDs (batch-123-q1, batch-123-q2, etc.)
+    const updatedAnswers = [...currentAnswers];
+    const updatedQuestions = [...currentQuestions];
+    
+    // Extract and normalize the question IDs from the provided answers
+    const normalizedAnswers: Record<string, string> = {};
+    
+    for (const fullQuestionId in answers) {
+      // Skip empty answers
+      const answerText = answers[fullQuestionId];
+      if (!answerText || answerText.trim() === '') continue;
+      
+      // Check if this is a combined ID (batch-id-question-id format)
+      const parts = fullQuestionId.split('-');
+      let questionId;
+      
+      if (parts.length > 1 && fullQuestionId.includes(arrayData.question_id)) {
+        // This is a combined ID in the format "batch-id-question-id"
+        // The question ID is the last part (e.g., q1, q2, etc.)
+        questionId = parts[parts.length - 1];
+        console.log(`Normalized combined ID ${fullQuestionId} to ${questionId}`);
+      } else {
+        // This is already a direct question ID
+        questionId = fullQuestionId;
+        console.log(`Using direct question ID: ${questionId}`);
+      }
+      
+      normalizedAnswers[questionId] = answerText;
+    }
+    
+    console.log(`Normalized answers:`, JSON.stringify(normalizedAnswers));
+    
+    // Update questions and answers using the normalized IDs
+    const answeredQuestionIds = Object.keys(normalizedAnswers);
+    
+    // Update questions and answers
+    for (const questionId of answeredQuestionIds) {
+      const answerText = normalizedAnswers[questionId];
+      
+      // Find the question in the questions array
+      const questionIndex = updatedQuestions.findIndex(q => q.id === questionId);
+      if (questionIndex === -1) {
+        console.log(`No matching question found for ID: ${questionId}`);
+        continue;
+      }
+      
+      console.log(`Found matching question at index ${questionIndex} for ID: ${questionId}`);
+      
+      // Update the question's answered status
+      updatedQuestions[questionIndex] = {
+        ...updatedQuestions[questionIndex],
+        answered: true
+      };
+      
+      // Check if we already have an answer for this question
+      const existingAnswerIndex = updatedAnswers.findIndex(a => a.id === questionId);
+      
+      if (existingAnswerIndex >= 0) {
+        // Update existing answer
+        console.log(`Updating existing answer at index ${existingAnswerIndex}`);
+        updatedAnswers[existingAnswerIndex] = {
+          ...updatedAnswers[existingAnswerIndex],
+          answer: answerText,
+          answered: true,
+          updated_at: new Date().toISOString()
+        };
+      } else {
+        // Add new answer
+        console.log(`Adding new answer for question ID: ${questionId}`);
+        updatedAnswers.push({
+          id: questionId,
+          text: updatedQuestions[questionIndex]?.text || '', // Include the question text for context
+          answer: answerText,
+          answered: true,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+      }
+    }
+    
+    console.log(`Final questions array:`, JSON.stringify(updatedQuestions));
+    console.log(`Final answers array:`, JSON.stringify(updatedAnswers));
+    
+    // Update the record in the database
+    const { data: updateData, error: updateError } = await supabase
+      .from('research_questions_array')
+      .update({ 
+        questions: updatedQuestions,
+        answers: updatedAnswers,
+        updated_at: new Date().toISOString()
+      })
+      .eq('question_id', arrayData.question_id)
+      .select();
+    
+    if (updateError) {
+      console.error('Error updating all answers:', updateError);
+      return { success: false, error: updateError };
+    }
+    
+    console.log('Successfully updated answers in database');
+    
+    // Send data to webhook if URL is available
+    if (arrayData.reply_webhook_url) {
+      try {
+        // Prepare a more comprehensive payload with both questions and answers
+        const webhookPayload = {
+          question_batch_id: arrayData.question_id,
+          research_id: arrayData.research_id,
+          user_id: arrayData.user_id,
+          // Include the full questions array for context
+          questions: updatedQuestions.map(q => ({
+            id: q.id,
+            text: q.text,
+            answered: q.answered
+          })),
+          // Include the full answers with question text for context
+          answers: updatedAnswers.map(a => {
+            // Find the original question for context
+            const question = updatedQuestions.find(q => q.id === a.id);
+            return {
+              id: a.id,
+              question: question?.text || '',
+              answer: a.answer,
+              answered: a.answered
+            };
+          }),
+          submitted_at: new Date().toISOString()
+        };
+        
+        // Log the full webhook payload for debugging
+        console.log(`===== WEBHOOK PAYLOAD =====`);
+        console.log(JSON.stringify(webhookPayload, null, 2));
+        
+        // Ensure webhook URL is properly formatted
+        let webhookUrl = arrayData.reply_webhook_url;
+        
+        // Add protocol if missing
+        if (!webhookUrl.startsWith('http://') && !webhookUrl.startsWith('https://')) {
+          webhookUrl = 'https://' + webhookUrl;
+        }
+        
+        console.log(`Sending answers to webhook URL: ${webhookUrl}`);
+        
+        // Check if this is an n8n wait node webhook (contains webhook-waiting in the URL)
+        const isN8nWaitNode = webhookUrl.includes('webhook-waiting');
+        
+        let webhookResponse;
+        
+        if (isN8nWaitNode) {
+          console.log('Detected n8n wait node webhook. Using multipart-form-data format...');
+          
+          // For n8n wait node, use multipart-form-data
+          const formData = new FormData();
+          
+          // Add all the payload fields as form data parameters
+          formData.append('payload', JSON.stringify(webhookPayload));
+          
+          // Add individual fields for easier access in n8n
+          formData.append('question_batch_id', arrayData.question_id);
+          formData.append('research_id', arrayData.research_id);
+          formData.append('user_id', arrayData.user_id);
+          formData.append('submitted_at', new Date().toISOString());
+          
+          // Add questions and answers as separate form fields for direct access in n8n
+          formData.append('questions', JSON.stringify(webhookPayload.questions));
+          formData.append('answers', JSON.stringify(webhookPayload.answers));
+          
+          // Send the data using multipart form data
+          webhookResponse = await fetch(webhookUrl, {
+            method: 'POST',
+            // Note: No need to specify Content-Type header - fetch will set it correctly with boundary
+            body: formData,
+          });
+        } else {
+          // For regular webhooks, use JSON payload
+          webhookResponse = await fetch(webhookUrl, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(webhookPayload),
+          });
+        }
+        
+        // Log detailed response information
+        console.log(`Webhook response status: ${webhookResponse.status}`);
+        
+        if (!webhookResponse.ok) {
+          console.warn(`Webhook response was not OK: ${webhookResponse.status}`);
+          
+          // Try to get response text for debugging
+          try {
+            const responseText = await webhookResponse.text();
+            console.warn(`Webhook response body: ${responseText}`);
+          } catch (responseError) {
+            console.warn(`Could not read webhook response body: ${responseError}`);
+          }
+        } else {
+          // Try to log the response payload
+          try {
+            const responseData = await webhookResponse.json();
+            console.log(`Webhook response data:`, responseData);
+          } catch (parseError) {
+            console.log(`Successfully sent all answers to webhook (no JSON response)`);
+          }
+        }
+      } catch (webhookError) {
+        console.error('Error sending answers to webhook:', webhookError);
+        // We continue even if webhook fails, since we updated the database
+      }
+    } else {
+      console.warn('No webhook URL found, skipping webhook notification');
+    }
+    
+    return { success: true, data: updateData };
+  } catch (error) {
+    console.error('Unexpected error in submitAllAnswers:', error);
+    return { success: false, error };
   }
 }
 

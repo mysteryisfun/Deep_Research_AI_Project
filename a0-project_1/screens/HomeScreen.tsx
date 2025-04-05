@@ -10,7 +10,7 @@ import {
   Alert
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation, NavigationProp, ParamListBase } from '@react-navigation/native';
+import { useNavigation, NavigationProp, ParamListBase, useFocusEffect } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system';
@@ -66,6 +66,17 @@ export default function HomeScreen() {
   const [errorDetails, setErrorDetails] = useState(errorMessage);
   // Reference to hold all label data for rendering in React Native
   const [labels, setLabels] = useState<LabelData[]>([]);
+  
+  // Reset the Get Started button when the screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      // Show the Get Started button when returning to this screen
+      setGetStartedVisible(true);
+      return () => {
+        // Cleanup function (if needed)
+      };
+    }, [])
+  );
   
   const navigateToDashboard = () => {
     // First trigger the animation by simulating Get Started button click
@@ -714,6 +725,7 @@ export default function HomeScreen() {
         <TouchableOpacity 
           style={styles.backButton}
           onPress={navigateToLogin}
+          activeOpacity={0.6}
         >
           <Text style={styles.backButtonText}>Back to Login</Text>
         </TouchableOpacity>
@@ -841,10 +853,16 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 30,
     alignSelf: 'center',
-    padding: 10
+    padding: 15,
+    zIndex: 120, // Higher zIndex to ensure it's above other elements
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    borderRadius: 20,
+    minWidth: 140,
+    alignItems: 'center',
   },
   backButtonText: {
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: 16
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 16,
+    fontWeight: '600',
   }
 });

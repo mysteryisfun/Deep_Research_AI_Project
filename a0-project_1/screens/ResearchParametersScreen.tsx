@@ -202,13 +202,8 @@ export default function ResearchParametersScreen({ route }: ResearchScreenProps)
     <SafeAreaView style={styles.container}>
       <StatusBar style="light" />
       
-      {/* Header */}
-      <LinearGradient
-        colors={['#4638ab', '#2b8fea']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-        style={styles.header}
-      >
+      {/* Simplified Header */}
+      <View style={styles.header}>
         <TouchableOpacity 
           style={styles.backButton}
           onPress={() => navigation.goBack()}
@@ -216,15 +211,12 @@ export default function ResearchParametersScreen({ route }: ResearchScreenProps)
           <Ionicons name="arrow-back" size={24} color="white" />
         </TouchableOpacity>
         <View style={styles.headerTitle}>
-          <MaterialIcons name="science" size={24} color="white" />
-          <Text style={styles.headerText}>Royal Research</Text>
+          <Text style={styles.headerText}>Research Parameters</Text>
         </View>
         
         {/* Empty view for header alignment */}
         <View style={styles.placeholderView} />
-      </LinearGradient>
-      
-      {/* Debug info panel removed */}
+      </View>
       
       {/* Agent Info */}
       <View style={styles.agentContainer}>
@@ -236,8 +228,6 @@ export default function ResearchParametersScreen({ route }: ResearchScreenProps)
           <Text style={styles.agentDescription}>{agentData.description || 'All-purpose research assistant with broad knowledge across many domains.'}</Text>
         </View>
       </View>
-
-      <Text style={styles.sectionTitle}>Research Parameters</Text>
 
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.mainContent}>
         <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
@@ -256,7 +246,24 @@ export default function ResearchParametersScreen({ route }: ResearchScreenProps)
             </View>
             <View style={styles.sliderContainer}>
               <View style={styles.sliderTrack}>
-                <View style={[styles.sliderFill, { width: `${(breadth/5)*100}%` }]} />
+                <Animated.View 
+                  style={[
+                    styles.sliderFill, 
+                    { 
+                      width: breadthAnimValue.interpolate({
+                        inputRange: [1, 5],
+                        outputRange: ['20%', '100%']
+                      }) 
+                    }
+                  ]} 
+                >
+                  <LinearGradient
+                    colors={['#6c63ff', '#3B82F6']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={{ flex: 1, borderRadius: 2 }}
+                  />
+                </Animated.View>
               </View>
               <View style={styles.sliderValues}>
                 {[1, 2, 3, 4, 5].map(value => (
@@ -265,10 +272,8 @@ export default function ResearchParametersScreen({ route }: ResearchScreenProps)
                     onPress={() => setBreadth(value)}
                     style={[
                       styles.sliderValue,
-                      breadth === value && styles.activeSliderValue,
                       breadth >= value && styles.filledSliderValue,
-                      value === 4 && styles.sliderValue4,
-                      value === 5 && styles.sliderValue5
+                      breadth === value && styles.activeSliderValue
                     ]}
                   >
                     <MotiView
@@ -307,7 +312,24 @@ export default function ResearchParametersScreen({ route }: ResearchScreenProps)
             </View>
             <View style={styles.sliderContainer}>
               <View style={styles.sliderTrack}>
-                <View style={[styles.sliderFill, { width: `${(depth/5)*100}%` }]} />
+                <Animated.View 
+                  style={[
+                    styles.sliderFill, 
+                    { 
+                      width: depthAnimValue.interpolate({
+                        inputRange: [1, 5],
+                        outputRange: ['20%', '100%']
+                      }) 
+                    }
+                  ]} 
+                >
+                  <LinearGradient
+                    colors={['#6c63ff', '#3B82F6']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={{ flex: 1, borderRadius: 2 }}
+                  />
+                </Animated.View>
               </View>
               <View style={styles.sliderValues}>
                 {[1, 2, 3, 4, 5].map(value => (
@@ -316,10 +338,8 @@ export default function ResearchParametersScreen({ route }: ResearchScreenProps)
                     onPress={() => setDepth(value)}
                     style={[
                       styles.sliderValue,
-                      depth === value && styles.activeSliderValue,
                       depth >= value && styles.filledSliderValue,
-                      value === 4 && styles.sliderValue4,
-                      value === 5 && styles.sliderValue5
+                      depth === value && styles.activeSliderValue
                     ]}
                   >
                     <MotiView
@@ -359,7 +379,7 @@ export default function ResearchParametersScreen({ route }: ResearchScreenProps)
               >
                 <MotiView
                   animate={{
-                    backgroundColor: includeTechnicalTerms ? '#3B82F6' : 'rgba(59, 130, 246, 0.2)'
+                    backgroundColor: includeTechnicalTerms ? '#6c63ff' : 'rgba(108, 99, 255, 0.2)'
                   }}
                   transition={{
                     type: 'timing',
@@ -470,7 +490,7 @@ export default function ResearchParametersScreen({ route }: ResearchScreenProps)
               transition={{ type: 'timing', duration: 300 }}
               style={styles.loadingContainer}
             >
-              <ActivityIndicator size="small" color="#3B82F6" />
+              <ActivityIndicator size="small" color="#6c63ff" />
               <Text style={styles.loadingText}>Submitting your research query...</Text>
             </MotiView>
           )}
@@ -483,17 +503,21 @@ export default function ResearchParametersScreen({ route }: ResearchScreenProps)
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0F172A',
+    backgroundColor: '#050A14',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
   },
   backButton: {
     padding: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 12,
   },
   headerTitle: {
     flexDirection: 'row',
@@ -503,7 +527,6 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: 'white',
-    marginLeft: 8,
   },
   placeholderView: {
     width: 40,
@@ -519,7 +542,9 @@ const styles = StyleSheet.create({
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: '#3B82F6',
+    backgroundColor: 'rgba(108, 99, 255, 0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(108, 99, 255, 0.3)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -539,27 +564,21 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
     lineHeight: 18,
   },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: 'white',
-    textAlign: 'center',
-    paddingVertical: 16,
-  },
   mainContent: {
     flex: 1,
   },
   scrollContainer: {
     paddingHorizontal: 16,
     paddingBottom: 24,
+    paddingTop: 16,
   },
   parameterSection: {
     marginBottom: 20,
     borderWidth: 1,
-    borderColor: 'rgba(59, 130, 246, 0.3)',
+    borderColor: 'rgba(108, 99, 255, 0.3)',
     borderRadius: 12,
     padding: 16,
-    backgroundColor: 'rgba(15, 23, 42, 0.7)',
+    backgroundColor: 'rgba(30, 41, 59, 0.4)',
   },
   parameterHeader: {
     flexDirection: 'row',
@@ -573,12 +592,14 @@ const styles = StyleSheet.create({
     color: 'white',
   },
   valueBadge: {
-    backgroundColor: '#3B82F6',
+    backgroundColor: 'rgba(108, 99, 255, 0.3)',
     width: 32,
     height: 32,
     borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(108, 99, 255, 0.4)',
   },
   valueText: {
     color: 'white',
@@ -593,12 +614,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(59, 130, 246, 0.2)',
     borderRadius: 2,
     marginBottom: 20,
+    overflow: 'hidden',
   },
   sliderFill: {
     position: 'absolute',
     height: '100%',
-    backgroundColor: '#3B82F6',
     borderRadius: 2,
+    overflow: 'hidden',
   },
   sliderValues: {
     flexDirection: 'row',
@@ -614,26 +636,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderColor: 'rgba(59, 130, 246, 0.3)',
-    shadowColor: '#3B82F6',
+    shadowColor: '#6c63ff',
     shadowOpacity: 0,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 2 },
     elevation: 0,
   },
   activeSliderValue: {
-    borderColor: '#3B82F6',
+    borderColor: '#6c63ff',
     borderWidth: 2,
     shadowOpacity: 0.3,
     elevation: 2,
   },
   filledSliderValue: {
-    backgroundColor: '#3B82F6',
-  },
-  sliderValue4: {
-    backgroundColor: 'rgba(59, 130, 246, 0.8)',
-  },
-  sliderValue5: {
-    backgroundColor: 'rgba(59, 130, 246, 0.9)',
+    backgroundColor: 'rgba(108, 99, 255, 0.2)',
   },
   sliderValueText: {
     color: 'rgba(255, 255, 255, 0.8)',
@@ -666,7 +682,7 @@ const styles = StyleSheet.create({
   toggleText: {
     fontSize: 12,
     fontWeight: 'bold',
-    color: '#3B82F6',
+    color: '#6c63ff',
   },
   toggleLabel: {
     marginLeft: 8,
@@ -677,9 +693,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+    backgroundColor: 'rgba(108, 99, 255, 0.1)',
     borderWidth: 1,
-    borderColor: 'rgba(59, 130, 246, 0.3)',
+    borderColor: 'rgba(108, 99, 255, 0.3)',
     borderRadius: 8,
     padding: 12,
     marginTop: 8,
@@ -690,26 +706,26 @@ const styles = StyleSheet.create({
   },
   dropdownMenu: {
     marginTop: 8,
-    backgroundColor: '#1E293B',
+    backgroundColor: 'rgba(30, 41, 59, 0.9)',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(59, 130, 246, 0.3)',
+    borderColor: 'rgba(108, 99, 255, 0.3)',
     overflow: 'hidden',
   },
   dropdownItem: {
     padding: 12,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(59, 130, 246, 0.1)',
+    borderBottomColor: 'rgba(108, 99, 255, 0.1)',
   },
   dropdownItemActive: {
-    backgroundColor: 'rgba(59, 130, 246, 0.2)',
+    backgroundColor: 'rgba(108, 99, 255, 0.2)',
   },
   dropdownItemText: {
     color: 'white',
     fontSize: 16,
   },
   dropdownItemTextActive: {
-    color: '#3B82F6',
+    color: '#6c63ff',
     fontWeight: '600',
   },
   queryInputContainer: {
@@ -719,7 +735,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(59, 130, 246, 0.3)',
     borderRadius: 25,
-    backgroundColor: 'rgba(15, 23, 42, 0.7)',
+    backgroundColor: 'rgba(30, 41, 59, 0.4)',
     paddingLeft: 20,
     paddingRight: 8,
     paddingVertical: 8,
@@ -730,12 +746,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     paddingVertical: 8,
     marginRight: 8,
+    outlineStyle: 'none',
   },
   submitButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#3B82F6',
+    backgroundColor: 'rgba(59, 130, 246, 0.7)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -745,10 +762,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: 15,
     padding: 12,
-    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+    backgroundColor: 'rgba(108, 99, 255, 0.1)',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: 'rgba(59, 130, 246, 0.3)',
+    borderColor: 'rgba(108, 99, 255, 0.3)',
   },
   loadingText: {
     marginLeft: 10,

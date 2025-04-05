@@ -27,6 +27,7 @@ import HealthAgentScreen from "./screens/HealthAgentScreen";
 import FinancialAgentScreen from "./screens/FinancialAgentScreen";
 import PrivacySecurityScreen from "./screens/PrivacySecurityScreen";
 import LegalInfoScreen from "./screens/LegalInfoScreen";
+import HelpCenterScreen from "./screens/HelpCenterScreen";
 import TestN8nWebhook from "./TestN8nWebhook";
 import SimpleTestScreen from "./screens/SimpleTestScreen";
 import TestResearchResultScreen from "./screens/TestResearchResultScreen";
@@ -113,6 +114,7 @@ function RootStack({ initialRouteName }: { initialRouteName: string }) {
       <Stack.Screen name="ChangePasswordScreen" component={ChangePasswordScreen} />
       <Stack.Screen name="PrivacySecurityScreen" component={PrivacySecurityScreen} />
       <Stack.Screen name="LegalInfoScreen" component={LegalInfoScreen} />
+      <Stack.Screen name="HelpCenterScreen" component={HelpCenterScreen} />
       <Stack.Screen 
         name="LogoutScreen" 
         component={LogoutScreen}

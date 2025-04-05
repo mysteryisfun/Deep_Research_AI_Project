@@ -12,17 +12,21 @@ import {
   Animated,
   TextInput,
   Modal,
+  Platform,
+  useColorScheme,
+  Image,
 } from 'react-native';
 import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
-import { MotiView, MotiText } from 'moti';
+import { MotiView, MotiText, AnimatePresence } from 'moti';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { supabase } from '../utils/supabase';
 import { toast } from 'sonner-native';
 import ResearchProgressMonitor from '../components/ResearchProgressMonitor';
 import TopicCard from '../components/TopicCard';
 import { cleanupDebugTopics } from '../utils/researchService';
+import { BlurView } from 'expo-blur';
 
 // Define types for route params
 type RouteParams = {
@@ -43,14 +47,134 @@ type ResearchProgressItem = {
     url: string;
     title: string;
   }>;
+  state?: 'researching' | 'done'; // Add optional state property
 };
 
 const { width } = Dimensions.get('window');
+
+// Update color palette with darker blue
+const COLORS = {
+  midnightNavy: '#030812',  // Darker background color
+  deepNavy: '#091429',
+  charcoalSmoke: 'rgba(45, 52, 57, 0.55)',
+  accentBlue: '#4C87EA',
+  accentTeal: '#30A9C1',
+  progressGradientStart: '#4C87EA',
+  progressGradientEnd: '#30A9C1',
+  errorRed: '#FF5252',
+  textPrimary: '#F0F2F5',
+  textSecondary: 'rgba(224, 224, 224, 0.7)',
+  textMuted: 'rgba(224, 224, 224, 0.45)',
+  glacialTeal: 'rgba(100, 255, 218, 0.7)', // Interactive elements
+  accentBlueGlow: 'rgba(59, 130, 246, 0.3)', // Button glow
+  burnishedGold: '#FFC107',     // Highlights
+  deepCoralGlow: 'rgba(255, 111, 97, 0.2)', // Subtle alerts
+  paleMoonlight: '#E0E0E0',     // Text and icons
+  translucent: 'rgba(15, 23, 42, 0.6)'  // More transparent card color
+};
+
+// Updated progress colors with gradients
 const PROGRESS_COLORS = {
   low: ['#3B82F6', '#2563EB'] as const,
   medium: ['#8B5CF6', '#7C3AED'] as const,
   high: ['#EC4899', '#D946EF'] as const,
   done: ['#10B981', '#059669'] as const
+};
+
+// Enhance the GlassMorphicBlur component for a stronger glass effect
+const GlassMorphicBlur = ({ 
+  children, 
+  intensity = 15, // Increased default intensity
+  style,
+  fullyTransparent = false
+}: { 
+  children: React.ReactNode; 
+  intensity?: number; 
+  style?: any;
+  fullyTransparent?: boolean;
+}) => {
+  if (Platform.OS === 'ios') {
+    return (
+      <BlurView
+        intensity={fullyTransparent ? 0 : intensity} // Use potentially higher intensity
+        tint="dark"
+        style={[{ overflow: 'hidden', borderRadius: 16 }, style]}
+      >
+        <View style={{ 
+          backgroundColor: fullyTransparent ? 'transparent' : COLORS.charcoalSmoke, // Use updated color
+          // Reduced opacity for a clearer glass look, but ensure readability
+          opacity: fullyTransparent ? 0 : 0.6, 
+          ...StyleSheet.absoluteFillObject 
+        }} />
+        {children}
+      </BlurView>
+    );
+  }
+
+  // Fallback for Android - use the adjusted translucent color
+  return (
+    <View style={[{ overflow: 'hidden', borderRadius: 16 }, style]}>
+      <View style={{ 
+        backgroundColor: fullyTransparent ? 'transparent' : COLORS.translucent, // Use updated color
+        opacity: fullyTransparent ? 0 : 0.85, // Keep Android slightly more opaque
+        ...StyleSheet.absoluteFillObject 
+      }} />
+      {children}
+    </View>
+  );
+};
+
+// Create a more dynamic animated pulsing dots component
+const PulsingDots = () => {
+  // Define the transition config type explicitly to help TypeScript - REMOVED
+  /*
+  const transitionConfig: MotiTransitionProp = {
+    type: 'timing',
+    duration: 300,
+    loop: true,
+    repeatReverse: true, // Make it pulse back down
+  };
+  */
+
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', marginLeft: 5 }}>
+      {[0, 1, 2].map((i) => (
+        <MotiView
+          key={i}
+          from={{ scale: 0.5, opacity: 0.3 }}
+          animate={{ scale: 1, opacity: 0.8 }}
+          // Use type assertion as a workaround for persistent linter error
+          transition={{
+            type: 'timing',
+            duration: 300,
+            delay: i * 150,
+            loop: true,
+            repeatReverse: true,
+          } as any} // Type assertion added
+          style={{ 
+            width: 5, 
+            height: 5, 
+            borderRadius: 2.5, 
+            backgroundColor: '#fff', 
+            marginHorizontal: 2 
+          }}
+        />
+      ))}
+    </View>
+  );
+};
+
+// Helper function to get favicon URL
+const getFaviconUrl = (url: string) => {
+  try {
+    const domain = new URL(url).hostname;
+    // Using Google's favicon service as a simple approach
+    return `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
+  } catch (e) {
+    console.warn("Could not parse URL for favicon:", url, e);
+    // Return a default or placeholder icon URL if needed
+    return 'https://via.placeholder.com/16'; // Example placeholder
+  }
 };
 
 const ResearchProgressScreen = () => {
@@ -111,18 +235,9 @@ const ResearchProgressScreen = () => {
       return;
     }
     
-    // First attempt to clean up any debug topics
-    cleanupDebugTopics(research_id)
-      .then(cleaned => {
-        console.log(`Debug topics cleanup ${cleaned ? 'successful' : 'failed'}`);
-      })
-      .catch(err => {
-        console.error('Error during debug topics cleanup:', err);
-      })
-      .finally(() => {
-        // Then load initial data
-        fetchInitialTopics();
-      });
+    // Load data in background without setting loading state
+    // to prevent full visual refresh
+    fetchInitialTopics(false);
     
     // Set up real-time subscription
     const channel = supabase
@@ -178,9 +293,11 @@ const ResearchProgressScreen = () => {
   }, [research_id]);
   
   // Fetch initial topics data
-  const fetchInitialTopics = async () => {
+  const fetchInitialTopics = async (showLoading = false) => {
     try {
-      setIsLoading(true);
+      if (showLoading) {
+        setIsLoading(true);
+      }
       
       const { data, error } = await supabase
         .from('research_progress_new')
@@ -216,11 +333,16 @@ const ResearchProgressScreen = () => {
       console.error('Error fetching topics:', err);
       setError('Failed to load research progress data');
     } finally {
-      setIsLoading(false);
+      if (showLoading) {
+        setIsLoading(false);
+      } else {
+        // Only update loading state after a delay to prevent UI flashing
+        setTimeout(() => setIsLoading(false), 300);
+      }
     }
   };
   
-  // Handle real-time updates
+  // Handle real-time updates without refreshing entire screen
   const handleProgressUpdate = (payload: any) => {
     console.log('Received progress update:', payload);
     
@@ -236,17 +358,30 @@ const ResearchProgressScreen = () => {
     }
     
     if (eventType === 'INSERT') {
-      // Add new topic to the top of the list
+      // Add new topic to the top of the list without triggering loading state
       setTopics(currentTopics => {
         // Check if this topic already exists
         const exists = currentTopics.some(topic => topic.progress_id === newRecord.progress_id);
         if (exists) return currentTopics;
         
+        // Mark previous topics as "done" by adding a "done" flag
+        // Ensure the currently active topic (index 0) gets marked done visually
+        const updatedTopics = currentTopics.map((topic, index) => {
+          // Mark the *previous* active topic as done when a new one arrives
+          if (index === 0 && topic.state !== 'done' && !topic.topic.toLowerCase().includes('ready')) {
+            console.log(`Marking topic ${topic.progress_id} as done`);
+            return { ...topic, state: 'done' };
+          }
+          return topic;
+        });
+        
         const newItem = {
           ...newRecord,
-          links: Array.isArray(newRecord.links) ? newRecord.links : []
+          links: Array.isArray(newRecord.links) ? newRecord.links : [],
+          state: 'researching'
         };
-        return [newItem, ...currentTopics];
+        
+        return [newItem, ...updatedTopics];
       });
       
       // Scroll to top when new topic is added
@@ -262,10 +397,6 @@ const ResearchProgressScreen = () => {
           newRecord.topic.toLowerCase().includes('ready')) {
         setIsComplete(true);
         toast.success('Research has completed!');
-        // Remove automatic navigation to results screen
-        // setTimeout(() => {
-        //   navigation.navigate('ResearchResultScreen', { research_id });
-        // }, 1500);
       }
     } else if (eventType === 'UPDATE') {
       // Update existing topic with new data
@@ -275,7 +406,8 @@ const ResearchProgressScreen = () => {
             return {
               ...topic,
               ...newRecord,
-              links: Array.isArray(newRecord.links) ? newRecord.links : []
+              links: Array.isArray(newRecord.links) ? newRecord.links : [],
+              state: topic.state // preserve the state
             };
           }
           return topic;
@@ -325,26 +457,43 @@ const ResearchProgressScreen = () => {
     return PROGRESS_COLORS.high;
   };
   
-  // Render source links for a topic
-  const renderSourceLinks = (links: any[]) => {
+  // Render source links for a topic - Redesigned
+  const renderSourceLinks = (links: ResearchProgressItem['links']) => {
     if (!links || links.length === 0) {
       return null;
     }
     
     return (
-      <View style={styles.sourcesContainer}>
-        {links.map((link, index) => (
-          <TouchableOpacity 
-            key={index}
-            style={styles.sourceLink}
-            onPress={() => Linking.openURL(link.url)}
-          >
-            <Feather name="external-link" size={12} color="#6366f1" />
-            <Text style={styles.sourceLinkText} numberOfLines={1}>
-              {link.title || link.url}
-            </Text>
-          </TouchableOpacity>
-        ))}
+      <View style={styles.sourcesSection}>
+        <View style={styles.sourcesHeader}>
+          <Feather name="link" size={14} color="rgba(224, 224, 224, 0.6)" />
+          <Text style={styles.sourcesTitle}>Sources ({links.length})</Text>
+        </View>
+        <View style={styles.sourcesContainerMinimal}>
+          {links.map((link, linkIndex) => (
+            <TouchableOpacity 
+              key={linkIndex}
+              style={[
+                styles.sourceLinkMinimal,
+                // Remove border bottom for the last item
+                linkIndex === links.length - 1 && { borderBottomWidth: 0 } 
+              ]}
+              onPress={() => Linking.openURL(link.url)}
+            >
+              <Image 
+                source={{ uri: getFaviconUrl(link.url) }} 
+                style={styles.favicon} 
+                // Add a default source or error handling if needed
+                onError={(e) => console.log("Failed to load favicon:", e.nativeEvent.error)}
+              />
+              <Text style={styles.sourceLinkTextMinimal} numberOfLines={1}>
+                {link.title || new URL(link.url).hostname} 
+              </Text>
+              {/* Keep external link icon subtle */}
+              <Feather name="external-link" size={12} color={COLORS.textMuted} style={{ marginLeft: 'auto' }}/>
+            </TouchableOpacity>
+          ))}
+        </View>
       </View>
     );
   };
@@ -462,6 +611,12 @@ const ResearchProgressScreen = () => {
     <SafeAreaView style={styles.container}>
       <StatusBar style="light" />
       
+      {/* Background gradient with darker blues */}
+      <LinearGradient
+        colors={[COLORS.midnightNavy, '#030812']}
+        style={StyleSheet.absoluteFillObject}
+      />
+      
       {/* Include the research progress monitor */}
       {research_id && userId && (
         <ResearchProgressMonitor 
@@ -475,32 +630,27 @@ const ResearchProgressScreen = () => {
         />
       )}
       
-      {/* Header */}
-      <LinearGradient
-        colors={['#4F46E5', '#6366F1']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-        style={styles.header}
-      >
+      {/* Simplified Header */}
+      <View style={styles.header}>
         <TouchableOpacity 
           style={styles.backButton}
           onPress={() => navigation.goBack()}
         >
-          <Ionicons name="arrow-back" size={24} color="#fff" />
+          <LinearGradient
+            colors={['rgba(45, 52, 57, 0.7)', 'rgba(45, 52, 57, 0.5)']}
+            style={styles.backButtonGradient}
+          >
+            <Ionicons name="arrow-back" size={24} color={COLORS.paleMoonlight} />
+          </LinearGradient>
         </TouchableOpacity>
         
-        <View style={styles.headerTitle}>
-          <MaterialIcons name="psychology" size={24} color="#fff" />
-          <Text style={styles.headerText}>Research Progress</Text>
-        </View>
-        
         <View style={styles.placeholder} />
-      </LinearGradient>
+      </View>
       
-      {/* Progress Summary */}
-      <View style={styles.progressSummary}>
+      {/* Progress Summary with Enhanced Translucent Card */}
+      <GlassMorphicBlur intensity={15} style={[styles.progressSummary, { borderWidth: 0 }]} fullyTransparent={true}>
         <View style={styles.queryContainer}>
-          <Text style={styles.queryLabel}>Research Query:</Text>
+          <Text style={styles.queryLabel}>Research Query</Text>
           <Text style={styles.queryText}>{query || 'Research in progress'}</Text>
         </View>
         
@@ -515,60 +665,49 @@ const ResearchProgressScreen = () => {
             <Animated.View
               style={[
                 styles.progressBarInner,
-                { 
-                  width: progressWidth,
-                  backgroundColor: isComplete ? '#10B981' : undefined
-                }
+                { width: progressWidth }
               ]}
             >
-              {!isComplete && (
-                <LinearGradient
-                  colors={getProgressColor(progress)}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.progressGradient}
-                />
-              )}
+              <LinearGradient
+                colors={getProgressColor(progress)}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.progressGradient}
+              />
             </Animated.View>
           </View>
-          
-          {isComplete && (
-            <MotiView 
-              from={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ type: 'timing', duration: 500 } as any}
-              style={styles.completeBadge}
-            >
-              <MaterialIcons name="check-circle" size={12} color="#fff" />
-              <Text style={styles.completeText}>Research Complete</Text>
-            </MotiView>
-          )}
         </View>
-      </View>
+      </GlassMorphicBlur>
       
-      {/* Topics List */}
+      {/* Topics List with Translucent Cards */}
       {isLoading ? (
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#6366F1" />
-          <Text style={styles.loadingText}>Loading research progress...</Text>
+          <GlassMorphicBlur intensity={15} style={styles.stateCard}>
+            <ActivityIndicator size="large" color={COLORS.accentBlue} />
+            <Text style={styles.loadingText}>Loading research progress...</Text>
+          </GlassMorphicBlur>
         </View>
       ) : error ? (
         <View style={styles.errorContainer}>
-          <MaterialIcons name="error-outline" size={48} color="#EF4444" />
-          <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity 
-            style={styles.retryButton}
-            onPress={fetchInitialTopics}
-          >
-            <Text style={styles.retryButtonText}>Retry</Text>
-          </TouchableOpacity>
+          <GlassMorphicBlur intensity={15} style={styles.stateCard}>
+            <MaterialIcons name="error-outline" size={48} color={COLORS.deepCoralGlow} />
+            <Text style={styles.errorText}>{error}</Text>
+            <TouchableOpacity 
+              style={styles.retryButton}
+              onPress={() => fetchInitialTopics(true)}
+            >
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </TouchableOpacity>
+          </GlassMorphicBlur>
         </View>
       ) : topics.length === 0 ? (
         <View style={styles.emptyContainer}>
-          <MaterialIcons name="hourglass-empty" size={48} color="#6366F1" />
-          <Text style={styles.emptyText}>
-            Waiting for research to begin...
-          </Text>
+          <GlassMorphicBlur intensity={15} style={styles.stateCard}>
+            <MaterialIcons name="hourglass-empty" size={48} color={COLORS.accentBlue} />
+            <Text style={styles.emptyText}>
+              Waiting for research to begin...
+            </Text>
+          </GlassMorphicBlur>
         </View>
       ) : (
         <ScrollView
@@ -577,23 +716,86 @@ const ResearchProgressScreen = () => {
           contentContainerStyle={styles.topicsContainer}
           showsVerticalScrollIndicator={false}
         >
-          {topics.map((topic, index) => (
-            <TopicCard
-              key={topic.progress_id}
-              topic={topic.topic}
-              links={topic.links}
-              index={index}
-              totalCount={topics.length}
-              isActive={index === 0 && !isComplete}
-              createdAt={topic.created_at}
-              isLastItem={index === topics.length - 1}
-            />
-          ))}
+          {topics
+            .filter(topic => !topic.topic.toLowerCase().includes('research_done'))
+            .map((topic, index) => {
+              // Calculate the correct number - adding 1 to fix the numbering issue
+              const topicNumber = topics.filter(t => !t.topic.toLowerCase().includes('research_done')).length - index;
+              
+              return (
+                <MotiView
+                  key={topic.progress_id}
+                  from={{ opacity: 0, translateY: 20, scale: 0.95 }}
+                  animate={{ opacity: 1, translateY: 0, scale: 1 }}
+                  // Use type assertion as a workaround for persistent linter error
+                  transition={{
+                     type: 'timing',
+                     duration: 500,
+                     delay: index * 100
+                  } as any} // Type assertion added
+                  style={styles.topicCardContainer}
+                >
+                  {/* Use higher intensity for topic cards */}
+                  <GlassMorphicBlur intensity={20} style={[ 
+                    styles.topicCard,
+                    // Apply active style only if it's the first, not complete, and not explicitly 'done'
+                    index === 0 && !isComplete && topic.state !== 'done' && styles.activeTopicCard, 
+                    // Apply done style if explicitly 'done' or includes 'ready'
+                    (topic.state === 'done' || topic.topic.toLowerCase().includes('ready')) && styles.doneTopicCard
+                  ]}>
+                    <View style={styles.topicHeader}>
+                      <View style={styles.topicNumberContainer}>
+                        <Text style={styles.topicNumber}>{topicNumber}</Text>
+                      </View>
+                      <Text style={[
+                        styles.topicTitle,
+                        (topic.topic.toLowerCase().includes('ready') || topic.state === 'done') && styles.doneTopicTitle
+                      ]}>
+                        {topic.topic}
+                      </Text>
+                    </View>
+                    
+                    {/* Status badge for active research - use new PulsingDots */}
+                    {(index === 0 && !topic.topic.toLowerCase().includes('ready') && !isComplete && topic.state !== 'done') && (
+                      <MotiView
+                        style={styles.statusBadgeActive}
+                        from={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                      >
+                        <MaterialIcons name="hourglass-top" size={12} color="#fff" style={{ marginRight: 4 }}/>
+                        <Text style={styles.statusTextActive}>Researching</Text>
+                        <PulsingDots /> 
+                      </MotiView>
+                    )}
+                    
+                    {/* Status badge for completed topics */}
+                    {/* Ensure 'Done' shows if state is 'done' OR topic includes 'ready' */}
+                    {(topic.state === 'done' || topic.topic.toLowerCase().includes('ready')) && ( 
+                      <MotiView
+                        style={styles.statusBadgeDone}
+                        from={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                      >
+                        <MaterialIcons name="check-circle" size={12} color="#fff" />
+                        <Text style={styles.statusTextDone}>Done</Text>
+                      </MotiView>
+                    )}
+                    
+                    {/* Use the redesigned renderSourceLinks */}
+                    {renderSourceLinks(topic.links)}
+                    
+                    <Text style={styles.topicTime}>
+                      {new Date(topic.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </Text>
+                  </GlassMorphicBlur>
+                </MotiView>
+              );
+            })}
         </ScrollView>
       )}
       
-      {/* Bottom Actions */}
-      <View style={styles.actionsContainer}>
+      {/* Bottom Actions - Glass Effect */}
+      <GlassMorphicBlur intensity={25} style={styles.actionsContainer}>
         {isResearchComplete() ? (
           <TouchableOpacity 
             style={styles.resultsButton}
@@ -626,7 +828,7 @@ const ResearchProgressScreen = () => {
             <Text style={styles.backToAppText}>Continue in Background</Text>
           </TouchableOpacity>
         )}
-      </View>
+      </GlassMorphicBlur>
     </SafeAreaView>
   );
 };
@@ -634,7 +836,7 @@ const ResearchProgressScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0f172a',
+    backgroundColor: COLORS.midnightNavy,
   },
   header: {
     flexDirection: 'row',
@@ -642,40 +844,40 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 16,
+    zIndex: 10,
   },
   backButton: {
-    padding: 8,
+    borderRadius: 30,
+    overflow: 'hidden',
   },
-  headerTitle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  headerText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#fff',
-    marginLeft: 8,
+  backButtonGradient: {
+    padding: 10,
+    borderRadius: 30,
   },
   placeholder: {
     width: 40,
   },
   progressSummary: {
+    margin: 16,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  glassInner: {
     padding: 16,
-    backgroundColor: '#1e293b',
-    borderBottomWidth: 1,
-    borderBottomColor: '#334155',
+    width: '100%',
+    height: '100%',
   },
   queryContainer: {
     marginBottom: 16,
   },
   queryLabel: {
     fontSize: 12,
-    color: '#94a3b8',
+    color: 'rgba(224, 224, 224, 0.7)',
     marginBottom: 4,
   },
   queryText: {
     fontSize: 16,
-    color: '#e2e8f0',
+    color: COLORS.paleMoonlight,
     fontWeight: '500',
   },
   progressBarContainer: {
@@ -689,30 +891,25 @@ const styles = StyleSheet.create({
   },
   progressText: {
     fontSize: 14,
-    color: '#e2e8f0',
+    color: COLORS.paleMoonlight,
   },
   progressBarOuter: {
     height: 8,
-    backgroundColor: '#334155',
+    backgroundColor: 'rgba(59, 130, 246, 0.1)',
     borderRadius: 8,
     overflow: 'hidden',
+    borderWidth: 0,
   },
   progressBarInner: {
     height: '100%',
     borderRadius: 8,
     overflow: 'hidden',
+    borderWidth: 0,
   },
   progressGradient: {
     height: '100%',
     width: '100%',
-  },
-  topicsCount: {
-    marginTop: 6,
-    alignItems: 'flex-end',
-  },
-  topicsCountText: {
-    fontSize: 12,
-    color: '#94a3b8',
+    borderWidth: 0, // Ensure no border
   },
   scrollView: {
     flex: 1,
@@ -721,152 +918,167 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingBottom: 80,
   },
-  topicCard: {
-    backgroundColor: '#1e293b',
-    borderRadius: 12,
+  topicCardContainer: {
     marginBottom: 16,
-    padding: 16,
-    borderLeftWidth: 3,
-    borderLeftColor: '#6366F1',
+  },
+  topicCard: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 0, // Explicitly remove border
+    // Adjusted background for glass effect consistency
+    backgroundColor: 'transparent', 
   },
   activeTopicCard: {
-    borderLeftColor: '#8B5CF6',
-    backgroundColor: '#1e293b',
-    shadowColor: '#6366F1',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 3,
+     // Keep subtle highlight for active card, maybe slightly brighter background within blur
+     // The GlassMorphicBlur component handles the main background styling
+     // Add a subtle inner glow or slightly different tint if needed via GlassMorphicBlur style prop maybe
+     // Example: Add a very subtle border highlight if desired
+     // borderColor: 'rgba(139, 92, 246, 0.3)', 
+     // borderWidth: 0.5, 
   },
   doneTopicCard: {
-    borderLeftColor: '#10B981',
+    // Similar to active, rely on GlassMorphicBlur, maybe adjust tint slightly for done state if needed
+    // Example: Subtle border highlight
+    // borderColor: 'rgba(16, 185, 129, 0.2)',
+    // borderWidth: 0.5,
   },
   topicHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 12,
+    padding: 16,
   },
   topicNumberContainer: {
-    backgroundColor: 'rgba(99, 102, 241, 0.1)',
+    backgroundColor: 'rgba(59, 130, 246, 0.1)',
     width: 28,
     height: 28,
     borderRadius: 14,
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 10,
+    borderWidth: 0, // Remove border
   },
   topicNumber: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#6366F1',
+    color: COLORS.accentBlue,
     textAlign: 'center',
   },
   topicTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#e2e8f0',
+    color: COLORS.paleMoonlight, // Ensure text is readable on glass
     flex: 1,
   },
   doneTopicTitle: {
-    color: '#10B981',
+    // Adjust color for better visibility if needed, or keep as is if contrast is good
+    color: COLORS.glacialTeal, // Use a teal color for 'done' title
+    textDecorationLine: 'line-through', // Add line-through for clarity
+    opacity: 0.8, // Slightly fade done titles
   },
   statusBadgeActive: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#8B5CF6',
+    backgroundColor: 'rgba(139, 92, 246, 0.8)',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
     alignSelf: 'flex-start',
     marginBottom: 12,
+    marginHorizontal: 16,
   },
   statusTextActive: {
     fontSize: 12,
     fontWeight: '500',
     color: '#fff',
-    marginLeft: 4,
-  },
-  statusBadgeComplete: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#059669',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    alignSelf: 'flex-start',
-    marginBottom: 12,
-  },
-  statusTextComplete: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#fff',
-    marginLeft: 4,
+    // Removed marginLeft, spacing handled by PulsingDots margin
   },
   statusBadgeDone: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#10B981',
+    backgroundColor: 'rgba(16, 185, 129, 0.8)',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
     alignSelf: 'flex-start',
     marginBottom: 12,
+    marginHorizontal: 16,
   },
   statusTextDone: {
     fontSize: 12,
     fontWeight: '600',
     color: '#fff',
-    marginLeft: 4,
   },
   sourcesSection: {
     marginTop: 8,
     marginBottom: 12,
+    paddingHorizontal: 16, // Keep padding for the section
   },
   sourcesHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 8,
+    marginLeft: 4,
   },
   sourcesTitle: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#94a3b8',
-    marginLeft: 4,
+    color: 'rgba(224, 224, 224, 0.7)',
   },
-  sourcesContainer: {
-    backgroundColor: 'rgba(15, 23, 42, 0.5)',
+  sourcesContainerMinimal: {
+    // Use a less prominent background, maybe slightly darker than the card's blur background
+    backgroundColor: 'rgba(0, 0, 0, 0.15)', 
     borderRadius: 8,
-    padding: 12,
+    marginTop: 8,
+    // No internal padding, let links handle it
   },
-  sourceLink: {
+  sourceLinkMinimal: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 6,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(51, 65, 85, 0.5)',
+    paddingVertical: 10, // Increase padding slightly
+    paddingHorizontal: 12, // Add horizontal padding
+    borderBottomWidth: 0.5, // Use a very subtle separator
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)', // Lighter separator for dark theme
   },
-  sourceLinkText: {
+  favicon: {
+    width: 16,
+    height: 16,
+    borderRadius: 3, // Slightly rounded corners for favicon
+    marginRight: 10, // Space between favicon and text
+  },
+  sourceLinkTextMinimal: {
     fontSize: 13,
-    color: '#e2e8f0',
-    marginLeft: 8,
-    flex: 1,
-    textDecorationLine: 'underline',
-    textDecorationColor: 'rgba(99, 102, 241, 0.5)',
+    color: COLORS.paleMoonlight, // Ensure good contrast
+    flexShrink: 1, // Allow text to shrink if needed
+    marginRight: 8, // Space before the external link icon
+    // Remove underline
   },
   topicTime: {
     fontSize: 12,
-    color: '#64748b',
+    color: 'rgba(224, 224, 224, 0.5)',
     textAlign: 'right',
+    paddingHorizontal: 16,
+    paddingBottom: 12,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
   },
+  stateCard: {
+    padding: 24,
+    borderRadius: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(59, 130, 246, 0.15)',
+    overflow: 'hidden',
+    width: 300,
+  },
   loadingText: {
     marginTop: 16,
     fontSize: 16,
-    color: '#e2e8f0',
+    color: COLORS.paleMoonlight,
+    textAlign: 'center',
   },
   errorContainer: {
     flex: 1,
@@ -877,18 +1089,20 @@ const styles = StyleSheet.create({
   errorText: {
     marginTop: 16,
     fontSize: 16,
-    color: '#e2e8f0',
+    color: COLORS.paleMoonlight,
     textAlign: 'center',
     marginBottom: 24,
   },
   retryButton: {
-    backgroundColor: '#6366F1',
+    backgroundColor: 'rgba(59, 130, 246, 0.2)',
+    borderWidth: 1,
+    borderColor: 'rgba(59, 130, 246, 0.3)',
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 8,
   },
   retryButtonText: {
-    color: '#fff',
+    color: COLORS.accentBlue,
     fontSize: 14,
     fontWeight: '600',
   },
@@ -901,31 +1115,21 @@ const styles = StyleSheet.create({
   emptyText: {
     marginTop: 16,
     fontSize: 16,
-    color: '#e2e8f0',
+    color: COLORS.paleMoonlight,
     textAlign: 'center',
-  },
-  estimatedContainer: {
-    padding: 16,
-    alignItems: 'center',
-  },
-  estimatedText: {
-    fontSize: 14,
-    color: '#64748b',
-    fontStyle: 'italic',
   },
   actionsContainer: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
-    padding: 16,
-    backgroundColor: 'rgba(15, 23, 42, 0.9)',
     borderTopWidth: 1,
-    borderTopColor: '#334155',
+    borderTopColor: 'rgba(59, 130, 246, 0.1)',
   },
   resultsButton: {
     borderRadius: 8,
     overflow: 'hidden',
+    margin: 16,
   },
   resultsButtonGradient: {
     flexDirection: 'row',
@@ -943,29 +1147,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 14,
-    backgroundColor: '#334155',
+    backgroundColor: 'rgba(59, 130, 246, 0.2)',
     borderRadius: 8,
+    margin: 16,
   },
   backToAppText: {
-    color: '#fff',
+    color: COLORS.paleMoonlight,
     fontSize: 16,
     fontWeight: '500',
-  },
-  completeBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#10B981',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 12,
-    alignSelf: 'flex-end',
-    marginTop: 8,
-  },
-  completeText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#fff',
-    marginLeft: 4,
   },
   loadingIcon: {
     marginRight: 8,

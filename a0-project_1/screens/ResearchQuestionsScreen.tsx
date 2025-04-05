@@ -11,20 +11,65 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
-  Dimensions
+  Dimensions,
+  Animated,
+  Pressable
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import { Ionicons, MaterialIcons, Feather } from '@expo/vector-icons';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { MotiView } from 'moti';
+import { fetchQuestions, submitAllAnswers, monitorQuestions } from '../utils/questionsManager';
 import { supabase } from '../utils/supabase';
-import { useUser } from '../context/UserContext';
+import { BlurView } from 'expo-blur';
+
+// Updated color palette with blue focus
+const COLORS = {
+  midnightNavy: '#0A1128',      // Main background
+  charcoalSmoke: '#2D3439',     // Card background
+  glacialTeal: 'rgba(100, 255, 218, 0.7)', // Interactive elements
+  accentBlue: '#3B82F6',        // Primary button color
+  accentBlueGlow: 'rgba(59, 130, 246, 0.3)', // Button glow
+  burnishedGold: '#FFC107',     // Highlights
+  deepCoralGlow: 'rgba(255, 111, 97, 0.2)', // Subtle alerts
+  paleMoonlight: '#E0E0E0',     // Text and icons
+  translucent: 'rgba(45, 52, 57, 0.75)'  // Translucent card color
+};
+
+// Enhanced glass morphic blur effect
+const GlassMorphicBlur = ({ intensity = 50, tint = 'dark', style, children }: { 
+  intensity?: number; 
+  tint?: 'light' | 'dark' | 'default'; 
+  style?: any; 
+  children: React.ReactNode 
+}) => {
+  if (Platform.OS === 'ios') {
+    return (
+      <BlurView intensity={intensity} tint={tint as 'light' | 'dark' | 'default'} style={style}>
+        <View style={styles.glassInner}>
+          {children}
+        </View>
+      </BlurView>
+    );
+  }
+  
+  // For Android, use a semi-transparent background
+  return (
+    <View style={[style, { backgroundColor: COLORS.translucent }]}>
+      <View style={styles.glassInner}>
+        {children}
+      </View>
+    </View>
+  );
+};
 
 // Define types for the route params
 type RouteParams = {
   research_id: string;
   query?: string;
+  breadth?: number;
+  depth?: number;
 };
 
 type ResearchQuestion = {
@@ -39,9 +84,8 @@ type ResearchQuestion = {
 };
 
 const ResearchQuestionsScreen = () => {
-  const navigation = useNavigation();
+  const navigation = useNavigation<any>();
   const route = useRoute<RouteProp<Record<string, RouteParams>, string>>();
-  const { userId: globalUserId } = useUser();
   
   // Get the research ID from the route params
   const { research_id, query } = route.params || {};
@@ -54,8 +98,31 @@ const ResearchQuestionsScreen = () => {
   const [success, setSuccess] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   
-  const supabaseSubscriptionRef = useRef<any>(null);
+  // Animation refs and states
+  const submitButtonScale = useRef(new Animated.Value(1)).current;
+  const submitButtonOpacity = useRef(new Animated.Value(1)).current;
+  const pulseAnim = useRef(new Animated.Value(0)).current;
+
+  const stopMonitoringRef = useRef<(() => void) | null>(null);
   const scrollViewRef = useRef<ScrollView>(null);
+
+  // Animation for the submit button pulse effect
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseAnim, {
+          toValue: 1,
+          duration: 1500,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseAnim, {
+          toValue: 0,
+          duration: 1500,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  }, []);
 
   // Load questions when the component mounts
   useEffect(() => {
@@ -65,128 +132,54 @@ const ResearchQuestionsScreen = () => {
       return;
     }
     
-    // Initial fetch of questions
     loadQuestions();
     
-    // Set up real-time subscription for questions
-    setupQuestionSubscription();
+    // Setup real-time monitoring for questions
+    const stopMonitoring = monitorQuestions(research_id, (updatedQuestions) => {
+      setQuestions(updatedQuestions);
+      
+      // Update answers state with any new answers
+      setAnswers(prev => {
+        const newAnswers = { ...prev };
+        updatedQuestions.forEach(q => {
+          if (q.answer && !prev[q.question_id]) {
+            newAnswers[q.question_id] = q.answer;
+          }
+        });
+        return newAnswers;
+      });
+      
+      setHasQuestions(updatedQuestions.length > 0);
+    });
+    
+    stopMonitoringRef.current = stopMonitoring;
     
     // Cleanup on unmount
     return () => {
-      cleanupSubscription();
+      if (stopMonitoringRef.current) {
+        stopMonitoringRef.current();
+      }
     };
   }, [research_id]);
-  
-  // Set up Supabase real-time subscription for questions
-  const setupQuestionSubscription = () => {
-    if (!research_id) return;
-    
-    console.log(`Setting up real-time subscription for research_id: ${research_id}`);
-    
-    // Create and subscribe to a channel for research_questions_array
-    const questionsChannel = supabase
-      .channel(`research_questions:${research_id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'research_questions_array',
-          filter: `research_id=eq.${research_id}`
-        },
-        (payload: any) => {
-          console.log('Question change received:', payload);
-          
-          // Handle different event types
-          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-            // Refresh questions on insert or update
-            loadQuestions();
-          }
-        }
-      )
-      .subscribe();
-    
-    // Store subscription ref for cleanup
-    supabaseSubscriptionRef.current = questionsChannel;
-  };
-  
-  // Clean up Supabase subscription
-  const cleanupSubscription = () => {
-    if (supabaseSubscriptionRef.current) {
-      supabase.removeChannel(supabaseSubscriptionRef.current);
-      supabaseSubscriptionRef.current = null;
-    }
-  };
   
   // Load initial questions
   const loadQuestions = async () => {
     setLoading(true);
-    setError(null);
-    
     try {
-      console.log(`Fetching questions for research ID: ${research_id}`);
-      
-      // First, try to get questions from research_questions_array table
-      const { data: batchData, error: batchError } = await supabase
-        .from('research_questions_array')
-        .select('*')
-        .eq('research_id', research_id)
-        .maybeSingle();
-      
-      if (batchError && batchError.code !== 'PGRST116') {
-        console.error('Error fetching question batch:', batchError);
-        throw batchError;
-      }
-      
-      let questionsArray: ResearchQuestion[] = [];
-      
-      if (batchData && batchData.questions && Array.isArray(batchData.questions)) {
-        console.log(`Found batch with ${batchData.questions.length} questions`);
-        
-        // Format the questions from the batch
-        questionsArray = batchData.questions.map((q: any, index: number) => ({
-          question_id: q.id || `${batchData.question_id}-q${index + 1}`,
-          research_id: research_id,
-          user_id: globalUserId || batchData.user_id,
-          question: q.text || q.question,
-          answer: q.answer || null,
-          answered: !!q.answer,
-          created_at: batchData.created_at || new Date().toISOString()
-        }));
-      } else {
-        // Fallback to direct questions if no batch is found
-        const { data: directQuestions, error: directError } = await supabase
-          .from('research_questions')
-          .select('*')
-          .eq('research_id', research_id)
-          .order('created_at', { ascending: true });
-        
-        if (directError) {
-          console.error('Error fetching direct questions:', directError);
-          // Don't throw here, just log the error as we might not have this table
-        }
-        
-        if (directQuestions && directQuestions.length > 0) {
-          console.log(`Found ${directQuestions.length} direct questions`);
-          questionsArray = directQuestions;
-        }
-      }
-      
-      // Set the questions state
-      setQuestions(questionsArray);
+      const fetchedQuestions = await fetchQuestions(research_id);
+      setQuestions(fetchedQuestions);
       
       // Initialize answers state with any existing answers
       const initialAnswers: Record<string, string> = {};
-      questionsArray.forEach(q => {
+      fetchedQuestions.forEach(q => {
         if (q.answer) {
           initialAnswers[q.question_id] = q.answer;
         }
       });
       setAnswers(initialAnswers);
       
-      setHasQuestions(questionsArray.length > 0);
-      
-    } catch (err: any) {
+      setHasQuestions(fetchedQuestions.length > 0);
+    } catch (err) {
       console.error('Error loading questions:', err);
       setError('Failed to load questions. Please try again.');
     } finally {
@@ -202,6 +195,36 @@ const ResearchQuestionsScreen = () => {
     }));
   };
   
+  // Submit button press animation
+  const animateButtonPress = () => {
+    Animated.sequence([
+      Animated.parallel([
+        Animated.timing(submitButtonScale, {
+          toValue: 0.95,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+        Animated.timing(submitButtonOpacity, {
+          toValue: 0.8,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.parallel([
+        Animated.timing(submitButtonScale, {
+          toValue: 1,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+        Animated.timing(submitButtonOpacity, {
+          toValue: 1,
+          duration: 100,
+          useNativeDriver: true,
+        }),
+      ]),
+    ]).start();
+  };
+  
   // Submit all answers at once
   const handleSubmitAll = async () => {
     // Check if we have any answers to submit
@@ -211,100 +234,53 @@ const ResearchQuestionsScreen = () => {
       return;
     }
     
+    animateButtonPress();
     setSubmitting(true);
     setError(null);
     
     try {
       console.log(`Submitting answers for research ID: ${research_id}`);
-      console.log('Answers to submit:', JSON.stringify(answers));
+      console.log('Raw answers to submit:', JSON.stringify(answers));
       
-      // For each answer, insert or update in the database
-      const allSubmissions = Object.entries(answers).map(async ([questionId, answer]) => {
-        if (!answer || answer.trim() === '') return null;
+      // Debug question IDs format
+      const questionIds = Object.keys(answers);
+      console.log(`Question IDs in submission: ${questionIds.join(', ')}`);
+      
+      // Get any available questions from the database to double-check format
+      const { data: batchData, error: batchError } = await supabase
+        .from('research_questions_array')
+        .select('*')
+        .eq('research_id', research_id)
+        .maybeSingle();
         
-        // Find the corresponding question
-        const question = questions.find(q => q.question_id === questionId);
-        if (!question) return null;
+      if (batchData) {
+        console.log(`Found question batch: ${batchData.question_id}`);
+        console.log(`Batch contains ${batchData.questions?.length || 0} questions`);
+        if (batchData.questions?.length > 0) {
+          console.log(`Sample question ID format: ${batchData.questions[0].id}`);
+        }
+      } else if (batchError) {
+        console.warn(`Error checking question batch: ${batchError.message}`);
+      }
+      
+      const result = await submitAllAnswers(research_id, answers);
+      
+      if (result.success) {
+        console.log('Successfully submitted answers');
         
-        // Determine if we should update research_questions_array or direct questions
-        if (questionId.includes('-q')) {
-          // This is a batch question, update the batch
-          const batchId = questionId.split('-q')[0];
-          const questionIndex = parseInt(questionId.split('-q')[1]) - 1;
+        // Verbose logging to help with debugging
+        if (result.data) {
+          console.log('Submission result:', JSON.stringify(result.data));
           
-          // Get the current batch
-          const { data: currentBatch, error: getBatchError } = await supabase
-            .from('research_questions_array')
-            .select('*')
-            .eq('question_id', batchId)
-            .single();
+          // Check if answers were actually saved
+          const savedAnswers = result.data.answers || [];
+          console.log(`Saved ${savedAnswers.length} answers to database`);
           
-          if (getBatchError) {
-            console.error('Error getting batch for update:', getBatchError);
-            throw getBatchError;
-          }
-          
-          if (currentBatch && currentBatch.questions) {
-            // Update the specific question in the batch
-            const updatedQuestions = [...currentBatch.questions];
-            if (updatedQuestions[questionIndex]) {
-              updatedQuestions[questionIndex].answer = answer;
-              
-              // Update the batch in the database
-              const { error: updateError } = await supabase
-                .from('research_questions_array')
-                .update({
-                  questions: updatedQuestions
-                })
-                .eq('question_id', batchId);
-              
-              if (updateError) {
-                console.error('Error updating batch questions:', updateError);
-                throw updateError;
-              }
-              
-              return {
-                question_id: questionId,
-                answer
-              };
-            }
-          }
-        } else {
-          // Direct question, update research_questions table if it exists
-          try {
-            const { error: updateError } = await supabase
-              .from('research_questions')
-              .update({
-                answer,
-                answered: true
-              })
-              .eq('question_id', questionId);
-            
-            if (updateError) {
-              console.error('Error updating direct question:', updateError);
-              // Don't throw here as the table might not exist
-            }
-            
-            return {
-              question_id: questionId,
-              answer
-            };
-          } catch (updateErr) {
-            console.error('Error in direct question update:', updateErr);
-            // Continue with the next question
+          if (savedAnswers.length > 0) {
+            console.log('First saved answer:', JSON.stringify(savedAnswers[0]));
           }
         }
         
-        return null;
-      });
-      
-      // Wait for all submissions to complete
-      const results = await Promise.all(allSubmissions);
-      const successfulSubmissions = results.filter(Boolean);
-      
-      console.log(`Successfully submitted ${successfulSubmissions.length} answers`);
-      
-      if (successfulSubmissions.length > 0) {
         // Update the questions list with the new answers
         const updatedQuestions = questions.map(q => {
           const answer = answers[q.question_id];
@@ -326,17 +302,25 @@ const ResearchQuestionsScreen = () => {
         
         // Navigate to the research progress screen after a successful submission
         setTimeout(() => {
-          navigation.navigate('ResearchProgressScreen', { 
+          navigation.navigate('ResearchProgressScreen' as never, { 
             research_id,
             query,
             breadth: route.params?.breadth || 3,
             depth: route.params?.depth || 3
-          });
+          } as never);
         }, 2000);
       } else {
-        setError('No answers were successfully submitted. Please try again.');
+        console.error('Failed to submit answers:', result.error);
+        setError('Failed to submit answers. Please try again.');
+        
+        // More detailed error message
+        Alert.alert(
+          'Submission Error',
+          `Failed to submit answers: ${result.error?.message || 'Unknown error'}`,
+          [{ text: 'OK' }]
+        );
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('Error submitting answers:', err);
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       setError(`An unexpected error occurred: ${errorMessage}`);
@@ -359,36 +343,40 @@ const ResearchQuestionsScreen = () => {
         from={{ opacity: 0, translateY: 20 }}
         animate={{ opacity: 1, translateY: 0 }}
         transition={{
-          opacity: { duration: 300, delay: index * 100 },
-          translateY: { duration: 300, delay: index * 100 }
+          opacity: { type: 'timing', duration: 300, delay: index * 100 },
+          translateY: { type: 'timing', duration: 300, delay: index * 100 }
         }}
         style={styles.questionContainer}
       >
-        <View style={styles.questionHeader}>
-          <Text style={styles.questionNumber}>Q{index + 1}</Text>
-          <Text style={styles.questionText}>{question.question}</Text>
-        </View>
-        
-        <View style={styles.inputContainer}>
-          <TextInput
-            style={styles.input}
-            placeholder="Type your answer here..."
-            placeholderTextColor="rgba(255, 255, 255, 0.5)"
-            value={answers[question.question_id] || ''}
-            onChangeText={(text) => handleAnswerChange(question.question_id, text)}
-            multiline
-            numberOfLines={3}
-            textAlignVertical="top"
-            editable={!submitting && !question.answered}
-          />
-        </View>
-        
-        {question.answered && (
-          <View style={styles.answeredBadge}>
-            <MaterialIcons name="check-circle" size={16} color="#4ade80" />
-            <Text style={styles.answeredText}>Answered</Text>
+        <GlassMorphicBlur intensity={15} style={styles.glassCard}>
+          <View style={styles.questionHeader}>
+            <View style={styles.questionNumberContainer}>
+              <Text style={styles.questionNumber}>Q{index + 1}</Text>
+            </View>
+            <Text style={styles.questionText}>{question.question}</Text>
           </View>
-        )}
+          
+          <View style={styles.inputContainer}>
+            <TextInput
+              style={styles.input}
+              placeholder="Type your answer here..."
+              placeholderTextColor="rgba(224, 224, 224, 0.5)"
+              value={answers[question.question_id] || ''}
+              onChangeText={(text) => handleAnswerChange(question.question_id, text)}
+              multiline
+              numberOfLines={3}
+              textAlignVertical="top"
+              editable={!submitting && !question.answered}
+            />
+          </View>
+          
+          {question.answered && (
+            <View style={styles.answeredBadge}>
+              <MaterialIcons name="check-circle" size={16} color={COLORS.glacialTeal} />
+              <Text style={styles.answeredText}>Answered</Text>
+            </View>
+          )}
+        </GlassMorphicBlur>
       </MotiView>
     );
   };
@@ -397,33 +385,33 @@ const ResearchQuestionsScreen = () => {
     <SafeAreaView style={styles.container}>
       <StatusBar style="light" />
       
-      {/* Header */}
+      {/* Background gradient */}
       <LinearGradient
-        colors={['#1e293b', '#0f172a']}
-        style={styles.header}
-      >
+        colors={[COLORS.midnightNavy, '#050A14']}
+        style={StyleSheet.absoluteFillObject}
+      />
+      
+      {/* Minimal Header with just back button */}
+      <View style={styles.header}>
         <TouchableOpacity 
           style={styles.backButton}
           onPress={() => navigation.goBack()}
         >
-          <Ionicons name="arrow-back" size={24} color="white" />
+          <LinearGradient
+            colors={['rgba(45, 52, 57, 0.8)', 'rgba(45, 52, 57, 0.6)']}
+            style={styles.backButtonGradient}
+          >
+            <Ionicons name="arrow-back" size={24} color={COLORS.paleMoonlight} />
+          </LinearGradient>
         </TouchableOpacity>
         
-        <View style={styles.headerLogoContainer}>
-          <MaterialIcons name="question-answer" size={24} color="white" />
-          <Text style={styles.headerLogoText}>Research Questions</Text>
-        </View>
+        {/* Research Info */}
+        {query && (
+          <Text style={styles.queryText} numberOfLines={1}>"{query}"</Text>
+        )}
         
-        <View style={styles.rightPlaceholder} />
-      </LinearGradient>
-      
-      {/* Research Info */}
-      {query && (
-        <View style={styles.queryContainer}>
-          <Text style={styles.queryLabel}>Research Query:</Text>
-          <Text style={styles.queryText}>{query}</Text>
-        </View>
-      )}
+        <View style={styles.headerRight} />
+      </View>
       
       {/* Main Content */}
       <KeyboardAvoidingView
@@ -432,37 +420,69 @@ const ResearchQuestionsScreen = () => {
       >
         {loading ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#6c63ff" />
-            <Text style={styles.loadingText}>Loading research questions...</Text>
+            <MotiView
+              from={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{
+                opacity: { type: 'timing', duration: 500 },
+                scale: { type: 'timing', duration: 500 }
+              }}
+            >
+              <GlassMorphicBlur intensity={20} style={styles.loadingCard}>
+                <ActivityIndicator size="large" color={COLORS.glacialTeal} />
+                <Text style={styles.loadingText}>Loading research questions...</Text>
+              </GlassMorphicBlur>
+            </MotiView>
           </View>
         ) : error ? (
           <View style={styles.errorContainer}>
-            <MaterialIcons name="error-outline" size={48} color="#ff6b6b" />
-            <Text style={styles.errorText}>{error}</Text>
-            <TouchableOpacity 
-              style={styles.retryButton}
-              onPress={loadQuestions}
+            <MotiView
+              from={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{
+                opacity: { type: 'timing', duration: 500 },
+                scale: { type: 'timing', duration: 500 }
+              }}
             >
-              <Text style={styles.retryButtonText}>Retry</Text>
-            </TouchableOpacity>
+              <GlassMorphicBlur intensity={20} style={styles.errorCard}>
+                <MaterialIcons name="error-outline" size={48} color={COLORS.deepCoralGlow} />
+                <Text style={styles.errorText}>{error}</Text>
+                <TouchableOpacity 
+                  style={styles.retryButton}
+                  onPress={loadQuestions}
+                >
+                  <Text style={styles.retryButtonText}>Retry</Text>
+                </TouchableOpacity>
+              </GlassMorphicBlur>
+            </MotiView>
           </View>
         ) : !hasQuestions ? (
           <View style={styles.emptyContainer}>
-            <ActivityIndicator size="large" color="#6c63ff" />
-            <Text style={styles.emptyText}>
-              Please wait while we load questions...
-            </Text>
             <MotiView
               from={{ opacity: 0.6 }}
               animate={{ opacity: 1 }}
               transition={{
-                type: 'timing',
-                duration: 1000,
-                loop: true,
+                opacity: { type: 'timing', duration: 1000, repeatReverse: true, loop: true }
               }}
               style={styles.loadingIndicator}
             >
-              <MaterialIcons name="sync" size={24} color="#6c63ff" />
+              <GlassMorphicBlur intensity={20} style={styles.emptyCard}>
+                <ActivityIndicator size="large" color={COLORS.glacialTeal} />
+                <Text style={styles.emptyText}>
+                  Please wait while we load questions...
+                </Text>
+                <MotiView
+                  from={{ opacity: 0.6 }}
+                  animate={{ opacity: 1 }}
+                  transition={{
+                    loop: true,
+                    duration: 1000,
+                  }}
+                  style={styles.loadingIndicator}
+                >
+                  <MaterialIcons name="sync" size={24} color={COLORS.glacialTeal} />
+                </MotiView>
+              </GlassMorphicBlur>
             </MotiView>
           </View>
         ) : (
@@ -481,32 +501,76 @@ const ResearchQuestionsScreen = () => {
             
             {/* Submit Button */}
             <View style={styles.submitContainer}>
-              <TouchableOpacity
-                style={[
-                  styles.submitButton,
-                  (submitting || success) && styles.disabledButton
-                ]}
-                onPress={handleSubmitAll}
-                disabled={submitting || success}
-              >
-                {submitting ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : success ? (
-                  <View style={styles.successContainer}>
-                    <MaterialIcons name="check-circle" size={20} color="#fff" />
-                    <Text style={styles.submitButtonText}>Answers Submitted!</Text>
-                  </View>
-                ) : (
-                  <View style={styles.submitContent}>
-                    <Text style={styles.submitButtonText}>Submit All Answers</Text>
-                    <MaterialIcons name="send" size={20} color="#fff" />
-                  </View>
-                )}
-              </TouchableOpacity>
-              
-              <Text style={styles.noteText}>
-                Your answers help improve your research results.
-              </Text>
+              <GlassMorphicBlur intensity={20} style={styles.submitBlurContainer}>
+                <Pressable
+                  onPress={handleSubmitAll}
+                  disabled={submitting || success}
+                  style={({pressed}) => [
+                    styles.submitButtonWrapper,
+                    pressed && styles.submitButtonPressed
+                  ]}
+                >
+                  <Animated.View
+                    style={[
+                      styles.submitButton,
+                      {
+                        transform: [{ scale: submitButtonScale }],
+                        opacity: submitButtonOpacity
+                      }
+                    ]}
+                  >
+                    <LinearGradient
+                      colors={submitting || success ? 
+                        ['rgba(59, 130, 246, 0.7)', 'rgba(59, 130, 246, 0.5)'] : 
+                        [COLORS.accentBlue, 'rgba(59, 130, 246, 0.8)']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.submitGradient}
+                    >
+                      {submitting ? (
+                        <ActivityIndicator size="small" color={COLORS.paleMoonlight} />
+                      ) : success ? (
+                        <View style={styles.successContainer}>
+                          <MaterialIcons name="check-circle" size={20} color={COLORS.paleMoonlight} />
+                          <Text style={styles.submitButtonText}>Answers Submitted!</Text>
+                        </View>
+                      ) : (
+                        <View style={styles.submitContent}>
+                          <Text style={styles.submitButtonText}>Submit All Answers</Text>
+                          <Feather name="arrow-right" size={20} color={COLORS.paleMoonlight} />
+                        </View>
+                      )}
+                    </LinearGradient>
+                    
+                    {/* Pulse effect around button */}
+                    {!submitting && !success && (
+                      <Animated.View
+                        style={[
+                          styles.buttonPulse,
+                          {
+                            opacity: pulseAnim.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [0, 0.4]
+                            }),
+                            transform: [
+                              {
+                                scale: pulseAnim.interpolate({
+                                  inputRange: [0, 1],
+                                  outputRange: [1, 1.12]
+                                })
+                              }
+                            ]
+                          }
+                        ]}
+                      />
+                    )}
+                  </Animated.View>
+                </Pressable>
+                
+                <Text style={styles.noteText}>
+                  Your answers help improve your research results.
+                </Text>
+              </GlassMorphicBlur>
             </View>
           </>
         )}
@@ -518,7 +582,7 @@ const ResearchQuestionsScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0f172a',
+    backgroundColor: COLORS.midnightNavy,
   },
   header: {
     flexDirection: 'row',
@@ -526,40 +590,27 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(108, 99, 255, 0.2)',
+    zIndex: 10,
   },
   backButton: {
-    padding: 8,
+    borderRadius: 30,
+    overflow: 'hidden',
   },
-  headerLogoContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  backButtonGradient: {
+    padding: 10,
+    borderRadius: 30,
   },
-  headerLogoText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: 'white',
-    marginLeft: 8,
-  },
-  rightPlaceholder: {
-    width: 40,
-  },
-  queryContainer: {
-    backgroundColor: 'rgba(30, 41, 59, 0.8)',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(108, 99, 255, 0.2)',
-  },
-  queryLabel: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.7)',
-    marginBottom: 4,
+  headerRight: {
+    width: 44,
   },
   queryText: {
     fontSize: 16,
-    color: 'white',
-    fontWeight: '500',
+    fontWeight: '600',
+    color: COLORS.paleMoonlight,
+    flex: 1,
+    textAlign: 'center',
+    marginHorizontal: 10,
+    opacity: 0.9,
   },
   keyboardAvoidView: {
     flex: 1,
@@ -570,10 +621,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 20,
   },
+  loadingCard: {
+    padding: 24,
+    borderRadius: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(100, 255, 218, 0.15)',
+    overflow: 'hidden',
+    width: 300,
+  },
   loadingText: {
     marginTop: 16,
     fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.7)',
+    color: COLORS.paleMoonlight,
     textAlign: 'center',
   },
   errorContainer: {
@@ -582,23 +642,32 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 20,
   },
+  errorCard: {
+    padding: 24,
+    borderRadius: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 111, 97, 0.2)',
+    overflow: 'hidden',
+    width: 300,
+  },
   errorText: {
     marginTop: 16,
     fontSize: 16,
-    color: '#ff6b6b',
+    color: COLORS.paleMoonlight,
     textAlign: 'center',
     marginBottom: 24,
   },
   retryButton: {
-    backgroundColor: 'rgba(108, 99, 255, 0.2)',
+    backgroundColor: 'rgba(59, 130, 246, 0.2)',
     borderWidth: 1,
-    borderColor: 'rgba(108, 99, 255, 0.5)',
+    borderColor: 'rgba(59, 130, 246, 0.3)',
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 8,
   },
   retryButtonText: {
-    color: '#6c63ff',
+    color: COLORS.accentBlue,
     fontSize: 16,
     fontWeight: '600',
   },
@@ -608,10 +677,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 20,
   },
+  emptyCard: {
+    padding: 24,
+    borderRadius: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(59, 130, 246, 0.15)',
+    overflow: 'hidden',
+    width: 300,
+  },
   emptyText: {
     marginTop: 16,
     fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.7)',
+    color: COLORS.paleMoonlight,
     textAlign: 'center',
     maxWidth: '80%',
     marginBottom: 16,
@@ -622,95 +700,123 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: 'white',
-    marginBottom: 16,
+    color: COLORS.paleMoonlight,
+    marginBottom: 20,
     textAlign: 'center',
+    opacity: 0.9,
   },
   questionContainer: {
-    backgroundColor: 'rgba(30, 41, 59, 0.7)',
-    borderRadius: 12,
-    padding: 16,
     marginBottom: 16,
+  },
+  glassCard: {
+    borderRadius: 16,
+    overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(108, 99, 255, 0.3)',
+    borderColor: 'rgba(59, 130, 246, 0.2)',
+  },
+  glassInner: {
+    width: '100%',
+    height: '100%',
   },
   questionHeader: {
     flexDirection: 'row',
-    marginBottom: 12,
+    padding: 16,
     alignItems: 'flex-start',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(59, 130, 246, 0.1)',
+  },
+  questionNumberContainer: {
+    backgroundColor: 'rgba(59, 130, 246, 0.1)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    marginRight: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(59, 130, 246, 0.2)',
   },
   questionNumber: {
     fontSize: 14,
     fontWeight: 'bold',
-    color: '#6c63ff',
-    backgroundColor: 'rgba(108, 99, 255, 0.2)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-    marginRight: 8,
-    overflow: 'hidden',
+    color: COLORS.accentBlue,
   },
   questionText: {
     fontSize: 16,
-    color: 'white',
+    color: COLORS.paleMoonlight,
     fontWeight: '500',
     flex: 1,
     lineHeight: 22,
   },
   inputContainer: {
-    backgroundColor: 'rgba(15, 23, 42, 0.7)',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(108, 99, 255, 0.3)',
-    padding: 2,
-    marginBottom: 8,
+    padding: 16,
   },
   input: {
     fontSize: 16,
-    color: 'white',
-    padding: 12,
+    color: COLORS.paleMoonlight,
+    padding: 14,
     minHeight: 100,
+    backgroundColor: 'rgba(10, 17, 40, 0.5)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(59, 130, 246, 0.15)',
   },
   answeredBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'flex-end',
+    backgroundColor: 'rgba(100, 255, 218, 0.1)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginRight: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(100, 255, 218, 0.15)',
   },
   answeredText: {
     marginLeft: 4,
     fontSize: 14,
-    color: '#4ade80',
+    color: COLORS.glacialTeal,
   },
   spacer: {
-    height: 80,
+    height: 100,
   },
   submitContainer: {
-    backgroundColor: 'rgba(15, 23, 42, 0.9)',
+    paddingHorizontal: 16,
+    paddingBottom: 24,
+  },
+  submitBlurContainer: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(59, 130, 246, 0.2)',
     padding: 16,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(108, 99, 255, 0.3)',
+  },
+  submitButtonWrapper: {
+    marginBottom: 10,
+  },
+  submitButtonPressed: {
+    opacity: 0.9,
   },
   submitButton: {
-    backgroundColor: '#6c63ff',
-    paddingVertical: 14,
     borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#6c63ff',
-    shadowOffset: { width: 0, height: 4 },
+    overflow: 'hidden',
+    shadowColor: COLORS.accentBlue,
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 4,
   },
-  disabledButton: {
-    opacity: 0.7,
+  submitGradient: {
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   submitContent: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   submitButtonText: {
-    color: 'white',
+    color: COLORS.paleMoonlight,
     fontSize: 16,
     fontWeight: '600',
     marginHorizontal: 8,
@@ -719,11 +825,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  buttonPulse: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: COLORS.accentBlue,
+    borderRadius: 12,
+  },
   noteText: {
     textAlign: 'center',
-    color: 'rgba(255, 255, 255, 0.6)',
+    color: 'rgba(224, 224, 224, 0.7)',
     fontSize: 14,
-    marginTop: 12,
+    marginTop: 8,
   },
   loadingIndicator: {
     alignItems: 'center',

@@ -28,6 +28,21 @@ import { useTheme } from '../context/ThemeContext';
 import { useResearch } from '../context/ResearchContext';
 import { supabase } from '../context/supabase';
 import { submitFeedback, checkFeedbackSubmitted } from '../utils/researchService';
+import { LinearGradient } from 'expo-linear-gradient';
+
+// Define the cosmic theme palette
+const COSMIC_THEME = {
+  midnightNavy: '#0A1128',
+  glacialTeal: 'rgba(100, 255, 218, 0.7)',
+  burnishedGold: '#FFC107',
+  deepCoralGlow: 'rgba(255, 111, 97, 0.2)',
+  charcoalSmoke: '#2D3439',
+  paleMoonlight: '#E0E0E0',
+  cardBackground: 'rgba(45, 52, 57, 0.65)', // Translucent charcoal for cards
+  cardGlow: 'rgba(100, 255, 218, 0.1)',     // Subtle teal glow
+  accentGlow: 'rgba(255, 193, 7, 0.15)',    // Subtle gold glow
+  errorGlow: 'rgba(255, 111, 97, 0.5)',     // Stronger coral for errors
+};
 
 type RootStackParamList = {
   LoginScreen: undefined;
@@ -50,11 +65,12 @@ interface StarRatingProps {
   disabled?: boolean;
 }
 
+// Enhanced star rating component with animation
 const StarRating: React.FC<StarRatingProps> = ({ 
   rating, 
   setRating, 
   size = 24, 
-  color = '#FFD700', 
+  color = COSMIC_THEME.burnishedGold, // Use the burnished gold 
   disabled = false 
 }) => {
   return (
@@ -66,11 +82,21 @@ const StarRating: React.FC<StarRatingProps> = ({
           disabled={disabled}
           style={styles.starButton}
         >
-          <FontAwesome
-            name={rating >= star ? 'star' : 'star-o'}
-            size={size}
-            color={rating >= star ? color : '#cccccc'}
-          />
+          <MotiView
+            animate={{ 
+              scale: rating >= star ? [1, 1.2, 1] : 1,
+            }}
+            transition={{ 
+              type: 'timing',
+              duration: rating >= star ? 300 : 0,
+            }}
+          >
+            <FontAwesome
+              name={rating >= star ? 'star' : 'star-o'}
+              size={size}
+              color={rating >= star ? color : 'rgba(224, 224, 224, 0.3)'}
+            />
+          </MotiView>
         </TouchableOpacity>
       ))}
     </View>
@@ -90,6 +116,7 @@ export default function ResearchResultScreen() {
   const [waitingForResults, setWaitingForResults] = useState(false);
   const supabaseSubscriptionRef = useRef<any>(null);
   const pulseAnimation = useRef(new Animated.Value(1)).current;
+  const glowAnimation = useRef(new Animated.Value(0)).current;
   // Add a ref to track if we've already attempted to fetch data
   const hasAttemptedFetch = useRef(false);
   
@@ -303,31 +330,56 @@ export default function ResearchResultScreen() {
     // No dependencies to prevent refetching
   }, [researchId]);
   
-  // Set up pulse animation for waiting state
+  // Enhanced pulse animation for waiting state
   useEffect(() => {
     if (waitingForResults) {
+      // Pulse animation
       Animated.loop(
         Animated.sequence([
           Animated.timing(pulseAnimation, {
             toValue: 1.1,
-            duration: 1000,
+            duration: 1500,
             useNativeDriver: true,
           }),
           Animated.timing(pulseAnimation, {
             toValue: 1,
-            duration: 1000,
+            duration: 1500,
             useNativeDriver: true,
+          })
+        ])
+      ).start();
+      
+      // Glow animation
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(glowAnimation, {
+            toValue: 1,
+            duration: 2000,
+            useNativeDriver: false,
+          }),
+          Animated.timing(glowAnimation, {
+            toValue: 0.3,
+            duration: 2000,
+            useNativeDriver: false,
           })
         ])
       ).start();
     } else {
       pulseAnimation.setValue(1);
+      glowAnimation.setValue(0);
     }
     
     return () => {
       pulseAnimation.stopAnimation();
+      glowAnimation.stopAnimation();
     };
-  }, [waitingForResults, pulseAnimation]);
+  }, [waitingForResults, pulseAnimation, glowAnimation]);
+  
+  // Interpolate glow intensity
+  const glowIntensity = glowAnimation.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['rgba(100, 255, 218, 0.1)', 'rgba(100, 255, 218, 0.4)']
+  });
   
   const handleSubmitFeedback = async () => {
     if (!researchId || !rating) {
@@ -446,86 +498,24 @@ export default function ResearchResultScreen() {
     }
   }, [researchResult, currentResearch, researchId, setCurrentResearch]);
 
-  // Modify the Feedback Section to show a thank you message when feedback is submitted
-  // or show loading state when checking
-  const renderFeedbackSection = () => {
-    if (checkingFeedback) {
-      return (
-        <View style={[styles.feedbackCard, { backgroundColor: theme.card }]}>
-          <ActivityIndicator size="small" color={theme.accent} />
-          <Text style={[styles.loadingText, { color: theme.secondaryText, marginTop: 10 }]}>
-            Checking feedback status...
-          </Text>
-        </View>
-      );
-    }
-    
-    if (feedbackSubmitted) {
-      return (
-        <View style={[styles.feedbackCard, { backgroundColor: theme.card }]}>
-          <MaterialIcons name="check-circle" size={48} color="#4BB543" />
-          <Text style={[styles.feedbackTitle, { color: theme.text, textAlign: 'center', marginTop: 10 }]}>
-            Thank you for your feedback!
-          </Text>
-          <Text style={[{ color: theme.secondaryText, textAlign: 'center', marginTop: 8 }]}>
-            Your opinion helps us improve our research quality
-          </Text>
-        </View>
-      );
-    }
-    
-    return (
-      <View style={[styles.feedbackCard, { backgroundColor: theme.card }]}>
-        <Text style={[styles.feedbackTitle, { color: theme.text }]}>
-          Rate this Research
-        </Text>
-        <StarRating
-          rating={rating || 0}
-          setRating={(newRating) => setRating(newRating)}
-          disabled={isSubmittingFeedback}
-        />
-        <TextInput
-          style={[styles.feedbackInput, { 
-            backgroundColor: theme.background,
-            color: theme.text,
-            borderColor: theme.border
-          }]}
-          placeholder="Add a comment (optional)"
-          placeholderTextColor={theme.secondaryText}
-          value={feedbackComment}
-          onChangeText={setFeedbackComment}
-          multiline
-          numberOfLines={4}
-          editable={!isSubmittingFeedback}
-        />
-        <TouchableOpacity 
-          style={[
-            styles.submitButton,
-            { backgroundColor: theme.accent },
-            (!rating || isSubmittingFeedback) && { opacity: 0.6 }
-          ]}
-          onPress={handleSubmitFeedback}
-          disabled={isSubmittingFeedback || !rating}
-        >
-          {isSubmittingFeedback ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.submitButtonText}>
-              Submit Feedback
-            </Text>
-          )}
-        </TouchableOpacity>
-      </View>
-    );
-  };
-
   if (isLoading) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-        <StatusBar style={theme.statusBar === 'light' ? 'light' : 'dark'} />
+      <SafeAreaView style={[styles.container, { backgroundColor: COSMIC_THEME.midnightNavy }]}>
+        <StatusBar style="light" />
+        <LinearGradient
+          colors={[COSMIC_THEME.midnightNavy, '#0A1830']}
+          style={StyleSheet.absoluteFillObject}
+        />
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.accent} />
-          <Text style={[styles.loadingText, { color: theme.text }]}>
+          <Animated.View style={{
+            transform: [{ scale: pulseAnimation }],
+            backgroundColor: 'transparent',
+            borderRadius: 40,
+            padding: 10,
+          }}>
+            <ActivityIndicator size="large" color={COSMIC_THEME.glacialTeal} />
+          </Animated.View>
+          <Text style={[styles.loadingText, { color: COSMIC_THEME.paleMoonlight }]}>
             Loading research...
           </Text>
         </View>
@@ -535,18 +525,22 @@ export default function ResearchResultScreen() {
   
   if (waitingForResults) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-        <StatusBar style={theme.statusBar === 'light' ? 'light' : 'dark'} />
+      <SafeAreaView style={[styles.container, { backgroundColor: COSMIC_THEME.midnightNavy }]}>
+        <StatusBar style="light" />
+        <LinearGradient
+          colors={[COSMIC_THEME.midnightNavy, '#0A1830']}
+          style={StyleSheet.absoluteFillObject}
+        />
         
         {/* Header */}
-        <View style={[styles.header, { backgroundColor: theme.card }]}>
+        <View style={[styles.header, { backgroundColor: 'transparent', borderBottomColor: 'rgba(100, 255, 218, 0.15)' }]}>
           <TouchableOpacity 
             style={styles.backButton}
             onPress={() => navigation.goBack()}
           >
-            <Ionicons name="arrow-back" size={24} color={theme.text} />
+            <Ionicons name="arrow-back" size={24} color={COSMIC_THEME.paleMoonlight} />
           </TouchableOpacity>
-          <Text style={[styles.headerTitle, { color: theme.text }]}>
+          <Text style={[styles.headerTitle, { color: COSMIC_THEME.paleMoonlight }]}>
             Research Result
           </Text>
           <View style={styles.placeholder} />
@@ -554,14 +548,21 @@ export default function ResearchResultScreen() {
         
         <View style={styles.waitingContainer}>
           <Animated.View style={{
-            transform: [{ scale: pulseAnimation }]
+            transform: [{ scale: pulseAnimation }],
+            shadowColor: COSMIC_THEME.glacialTeal,
+            shadowOffset: { width: 0, height: 0 },
+            shadowOpacity: 0.5,
+            shadowRadius: 10,
+            backgroundColor: glowIntensity, // Animated glow
+            borderRadius: 40,
+            padding: 10,
           }}>
-            <ActivityIndicator size="large" color={theme.accent} />
+            <ActivityIndicator size="large" color={COSMIC_THEME.glacialTeal} />
           </Animated.View>
-          <Text style={[styles.waitingText, { color: theme.text }]}>
+          <Text style={[styles.waitingText, { color: COSMIC_THEME.paleMoonlight, marginTop: 24 }]}>
             Preparing Research Results...
           </Text>
-          <Text style={[styles.waitingSubText, { color: theme.secondaryText }]}>
+          <Text style={[styles.waitingSubText, { color: 'rgba(224, 224, 224, 0.7)' }]}>
             Your research report is being generated. This may take a few moments.
           </Text>
         </View>
@@ -571,99 +572,149 @@ export default function ResearchResultScreen() {
   
   if (error) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-        <StatusBar style={theme.statusBar === 'light' ? 'light' : 'dark'} />
+      <SafeAreaView style={[styles.container, { backgroundColor: COSMIC_THEME.midnightNavy }]}>
+        <StatusBar style="light" />
+        <LinearGradient
+          colors={[COSMIC_THEME.midnightNavy, '#0A1830']}
+          style={StyleSheet.absoluteFillObject}
+        />
         <View style={styles.errorContainer}>
-          <MaterialIcons name="error-outline" size={64} color="#FF3B30" />
-          <Text style={[styles.errorText, { color: theme.text }]}>
+          <Animated.View style={{
+            transform: [{ scale: pulseAnimation }],
+            shadowColor: COSMIC_THEME.errorGlow,
+            shadowOffset: { width: 0, height: 0 },
+            shadowOpacity: 0.5,
+            shadowRadius: 15,
+          }}>
+            <MaterialIcons name="error-outline" size={64} color={COSMIC_THEME.deepCoralGlow} />
+          </Animated.View>
+          <Text style={[styles.errorText, { color: COSMIC_THEME.paleMoonlight }]}>
             {error}
           </Text>
           <TouchableOpacity
-            style={[styles.retryButton, { backgroundColor: theme.accent }]}
+            style={[styles.retryButton, { backgroundColor: 'transparent' }]}
             onPress={() => navigation.goBack()}
           >
-            <Text style={styles.retryButtonText}>Go Back</Text>
+            <LinearGradient
+              colors={['rgba(100, 255, 218, 0.5)', 'rgba(100, 255, 218, 0.3)']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={{
+                paddingHorizontal: 24,
+                paddingVertical: 12,
+                borderRadius: 8,
+                shadowColor: COSMIC_THEME.glacialTeal,
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.3,
+                shadowRadius: 4,
+              }}
+            >
+              <Text style={styles.retryButtonText}>Go Back</Text>
+            </LinearGradient>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
   }
 
-  // Check if we have research results to display, regardless of currentResearch
+  // Check if we have research results to display
   if (researchResult) {
-  return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      <StatusBar style={theme.statusBar === 'light' ? 'light' : 'dark'} />
-      
-      {/* Header */}
-      <View style={[styles.header, { backgroundColor: theme.card }]}>
-        <TouchableOpacity 
-          style={styles.backButton}
-          onPress={() => navigation.goBack()}
-        >
-          <Ionicons name="arrow-back" size={24} color={theme.text} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.text }]}>
-          Research Result
-        </Text>
-        <TouchableOpacity 
-          style={styles.shareButton}
-          onPress={handleShare}
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: COSMIC_THEME.midnightNavy }]}>
+        <StatusBar style="light" />
+        <LinearGradient
+          colors={[COSMIC_THEME.midnightNavy, '#0A1830']}
+          style={StyleSheet.absoluteFillObject}
+        />
+        
+        {/* Header */}
+        <View style={[styles.header, { 
+          backgroundColor: 'transparent', 
+          borderBottomColor: 'rgba(100, 255, 218, 0.15)'
+        }]}>
+          <TouchableOpacity 
+            style={styles.backButton}
+            onPress={() => navigation.goBack()}
+          >
+            <Ionicons name="arrow-back" size={24} color={COSMIC_THEME.paleMoonlight} />
+          </TouchableOpacity>
+          <Text style={[styles.headerTitle, { color: COSMIC_THEME.paleMoonlight }]}>
+            Research Result
+          </Text>
+          <TouchableOpacity 
+            style={styles.shareButton}
+            onPress={handleShare}
             disabled={!currentResearch}
+          >
+            <MaterialIcons name="share" size={24} color={COSMIC_THEME.paleMoonlight} />
+          </TouchableOpacity>
+        </View>
+        
+        <ScrollView 
+          style={styles.content}
+          showsVerticalScrollIndicator={false}
         >
-          <MaterialIcons name="share" size={24} color={theme.text} />
-        </TouchableOpacity>
-      </View>
-      
-      <ScrollView 
-        style={styles.content}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Research Content */}
-        <View style={[styles.researchCard, { backgroundColor: theme.card }]}>
+          {/* Research Content */}
+          <MotiView
+            from={{ opacity: 0, translateY: 10 }}
+            animate={{ opacity: 1, translateY: 0 }}
+            transition={{ type: 'timing', duration: 500 }}
+            style={[styles.researchCard, { 
+              backgroundColor: COSMIC_THEME.cardBackground,
+              borderColor: 'rgba(100, 255, 218, 0.1)',
+              shadowColor: COSMIC_THEME.cardGlow,
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.2,
+              shadowRadius: 12,
+              elevation: 5,
+            }]}
+          >
             {/* Render markdown content with null check */}
             {researchResult?.result ? (
               <View style={styles.markdownContainer}>
                 <Markdown
                   style={{
-                    body: { color: theme.text },
-                    heading1: { color: theme.text, fontSize: 24, fontWeight: 'bold', marginBottom: 16, marginTop: 16 },
-                    heading2: { color: theme.text, fontSize: 20, fontWeight: '600', marginBottom: 12, marginTop: 20 },
-                    heading3: { color: theme.text, fontSize: 18, fontWeight: '600', marginBottom: 10, marginTop: 16 },
-                    paragraph: { color: theme.text, fontSize: 16, lineHeight: 24, marginBottom: 12 },
-                    strong: { color: theme.text, fontWeight: 'bold' },
-                    em: { color: theme.text, fontStyle: 'italic' },
-                    link: { color: theme.accent },
+                    body: { color: COSMIC_THEME.paleMoonlight },
+                    heading1: { color: COSMIC_THEME.glacialTeal, fontSize: 24, fontWeight: 'bold', marginBottom: 16, marginTop: 16 },
+                    heading2: { color: COSMIC_THEME.burnishedGold, fontSize: 20, fontWeight: '600', marginBottom: 12, marginTop: 20 },
+                    heading3: { color: 'rgba(100, 255, 218, 0.9)', fontSize: 18, fontWeight: '600', marginBottom: 10, marginTop: 16 },
+                    paragraph: { color: COSMIC_THEME.paleMoonlight, fontSize: 16, lineHeight: 24, marginBottom: 12 },
+                    strong: { color: COSMIC_THEME.burnishedGold, fontWeight: 'bold' },
+                    em: { color: 'rgba(224, 224, 224, 0.85)', fontStyle: 'italic' },
+                    link: { color: COSMIC_THEME.glacialTeal },
                     blockquote: { 
                       borderLeftWidth: 4, 
-                      borderLeftColor: theme.accent,
+                      borderLeftColor: COSMIC_THEME.glacialTeal,
                       paddingLeft: 16,
                       marginLeft: 0,
                       marginVertical: 12,
+                      backgroundColor: 'rgba(100, 255, 218, 0.05)',
                     },
                     bullet_list: { marginBottom: 12 },
                     ordered_list: { marginBottom: 12 },
-                    list_item: { color: theme.text, marginBottom: 8 },
+                    list_item: { color: COSMIC_THEME.paleMoonlight, marginBottom: 8 },
                     code_block: { 
-                      backgroundColor: theme.card,
+                      backgroundColor: 'rgba(10, 17, 40, 0.8)',
                       padding: 16,
                       borderRadius: 8,
-                      color: theme.text,
+                      color: COSMIC_THEME.glacialTeal,
                       fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
                       marginVertical: 12,
+                      borderWidth: 1,
+                      borderColor: 'rgba(100, 255, 218, 0.2)',
                     },
                     code_inline: {
-                      backgroundColor: theme.card,
+                      backgroundColor: 'rgba(10, 17, 40, 0.6)',
                       padding: 4,
                       borderRadius: 4,
-                      color: theme.accent,
+                      color: COSMIC_THEME.glacialTeal,
                       fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
                     },
-                    hr: { backgroundColor: theme.border, marginVertical: 16 },
-                    table: { borderWidth: 1, borderColor: theme.border, marginVertical: 16 },
-                    thead: { backgroundColor: theme.card },
-                    th: { padding: 8, color: theme.text, fontWeight: 'bold' },
-                    td: { padding: 8, borderTopWidth: 1, borderTopColor: theme.border, color: theme.text },
+                    hr: { backgroundColor: 'rgba(100, 255, 218, 0.2)', marginVertical: 16 },
+                    table: { borderWidth: 1, borderColor: 'rgba(100, 255, 218, 0.2)', marginVertical: 16 },
+                    thead: { backgroundColor: 'rgba(10, 17, 40, 0.6)' },
+                    th: { padding: 8, color: COSMIC_THEME.paleMoonlight, fontWeight: 'bold' },
+                    td: { padding: 8, borderTopWidth: 1, borderTopColor: 'rgba(100, 255, 218, 0.1)', color: COSMIC_THEME.paleMoonlight },
                     image: { maxWidth: '100%', height: 'auto', marginVertical: 16, borderRadius: 8 }
                   }}
                 >
@@ -672,47 +723,176 @@ export default function ResearchResultScreen() {
                 
                 <View style={styles.contentActions}>
                   <TouchableOpacity
-                    style={[styles.actionButton, { backgroundColor: theme.card }]}
+                    style={[styles.actionButton, { 
+                      backgroundColor: 'rgba(10, 17, 40, 0.6)',
+                      borderColor: 'rgba(100, 255, 218, 0.2)',
+                    }]}
                     onPress={handleCopyToClipboard}
                   >
                     <View style={styles.actionButtonContent}>
-                      <MaterialIcons name="content-copy" size={18} color={theme.text} />
-                      <Text style={[styles.actionButtonText, { color: theme.text }]}>Copy Content</Text>
+                      <MaterialIcons name="content-copy" size={18} color={COSMIC_THEME.glacialTeal} />
+                      <Text style={[styles.actionButtonText, { color: COSMIC_THEME.glacialTeal }]}>Copy Content</Text>
                     </View>
                   </TouchableOpacity>
                 </View>
               </View>
             ) : (
               <View style={styles.noResultContainer}>
-                <MaterialIcons name="info-outline" size={48} color={theme.secondaryText} />
-                <Text style={[styles.noResultText, { color: theme.secondaryText }]}>
+                <MaterialIcons name="info-outline" size={48} color="rgba(224, 224, 224, 0.5)" />
+                <Text style={[styles.noResultText, { color: 'rgba(224, 224, 224, 0.5)' }]}>
                   Waiting for results...
-          </Text>
+                </Text>
               </View>
             )}
-        </View>
-        
-        {/* Feedback Section - using the new render function */}
-        {renderFeedbackSection()}
-      </ScrollView>
+          </MotiView>
+          
+          {/* Feedback Section with enhanced styling */}
+          <MotiView
+            from={{ opacity: 0, translateY: 10 }}
+            animate={{ opacity: 1, translateY: 0 }}
+            transition={{ type: 'timing', duration: 500, delay: 200 }}
+          >
+            {checkingFeedback ? (
+              <View style={[styles.feedbackCard, { 
+                backgroundColor: COSMIC_THEME.cardBackground,
+                borderColor: 'rgba(100, 255, 218, 0.1)',
+                shadowColor: COSMIC_THEME.cardGlow,
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.2,
+                shadowRadius: 12,
+              }]}>
+                <ActivityIndicator size="small" color={COSMIC_THEME.glacialTeal} />
+                <Text style={[styles.loadingText, { color: 'rgba(224, 224, 224, 0.7)', marginTop: 10 }]}>
+                  Checking feedback status...
+                </Text>
+              </View>
+            ) : feedbackSubmitted ? (
+              <View style={[styles.feedbackCard, { 
+                backgroundColor: COSMIC_THEME.cardBackground,
+                borderColor: 'rgba(100, 255, 218, 0.1)',
+                shadowColor: COSMIC_THEME.cardGlow,
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.2,
+                shadowRadius: 12,
+              }]}>
+                <MotiView
+                  from={{ scale: 0.8, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  transition={{ type: 'spring', stiffness: 150 }}
+                >
+                  <MaterialIcons name="check-circle" size={48} color={COSMIC_THEME.glacialTeal} />
+                </MotiView>
+                <Text style={[styles.feedbackTitle, { color: COSMIC_THEME.paleMoonlight, textAlign: 'center', marginTop: 10 }]}>
+                  Thank you for your feedback!
+                </Text>
+                <Text style={[{ color: 'rgba(224, 224, 224, 0.7)', textAlign: 'center', marginTop: 8 }]}>
+                  Your opinion helps us improve our research quality
+                </Text>
+              </View>
+            ) : (
+              <View style={[styles.feedbackCard, { 
+                backgroundColor: COSMIC_THEME.cardBackground,
+                borderColor: 'rgba(100, 255, 218, 0.1)',
+                shadowColor: COSMIC_THEME.cardGlow,
+                shadowOffset: { width: 0, height: 4 },
+                shadowOpacity: 0.2,
+                shadowRadius: 12,
+              }]}>
+                <Text style={[styles.feedbackTitle, { color: COSMIC_THEME.paleMoonlight }]}>
+                  Rate this Research
+                </Text>
+                <StarRating
+                  rating={rating || 0}
+                  setRating={(newRating) => setRating(newRating)}
+                  disabled={isSubmittingFeedback}
+                  color={COSMIC_THEME.burnishedGold}
+                />
+                <TextInput
+                  style={[styles.feedbackInput, { 
+                    backgroundColor: 'rgba(10, 17, 40, 0.6)',
+                    color: COSMIC_THEME.paleMoonlight,
+                    borderColor: 'rgba(100, 255, 218, 0.2)',
+                  }]}
+                  placeholder="Add a comment (optional)"
+                  placeholderTextColor="rgba(224, 224, 224, 0.5)"
+                  value={feedbackComment}
+                  onChangeText={setFeedbackComment}
+                  multiline
+                  numberOfLines={4}
+                  editable={!isSubmittingFeedback}
+                />
+                <TouchableOpacity 
+                  style={[
+                    styles.submitButton,
+                    (!rating || isSubmittingFeedback) && { opacity: 0.6 }
+                  ]}
+                  onPress={handleSubmitFeedback}
+                  disabled={isSubmittingFeedback || !rating}
+                >
+                  <LinearGradient
+                    colors={[COSMIC_THEME.glacialTeal, 'rgba(100, 255, 218, 0.5)']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={{
+                      padding: 16,
+                      borderRadius: 8,
+                      alignItems: 'center',
+                      shadowColor: COSMIC_THEME.glacialTeal,
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: 0.4,
+                      shadowRadius: 6,
+                    }}
+                  >
+                    {isSubmittingFeedback ? (
+                      <ActivityIndicator color="#0A1128" />
+                    ) : (
+                      <Text style={[styles.submitButtonText, { color: '#0A1128', fontWeight: '700' }]}>
+                        Submit Feedback
+                      </Text>
+                    )}
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
+            )}
+          </MotiView>
+        </ScrollView>
       </SafeAreaView>
     );
   }
 
   // Fallback if we have no result and aren't waiting (should rarely happen)
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      <StatusBar style={theme.statusBar === 'light' ? 'light' : 'dark'} />
+    <SafeAreaView style={[styles.container, { backgroundColor: COSMIC_THEME.midnightNavy }]}>
+      <StatusBar style="light" />
+      <LinearGradient
+        colors={[COSMIC_THEME.midnightNavy, '#0A1830']}
+        style={StyleSheet.absoluteFillObject}
+      />
       <View style={styles.errorContainer}>
-        <MaterialIcons name="search-off" size={64} color="#FF3B30" />
-        <Text style={[styles.errorText, { color: theme.text }]}>
+        <MaterialIcons name="search-off" size={64} color={COSMIC_THEME.deepCoralGlow} />
+        <Text style={[styles.errorText, { color: COSMIC_THEME.paleMoonlight }]}>
           Research not found
         </Text>
         <TouchableOpacity 
-          style={[styles.retryButton, { backgroundColor: theme.accent }]}
+          style={[styles.retryButton, { backgroundColor: 'transparent' }]}
           onPress={() => navigation.goBack()}
         >
-          <Text style={styles.retryButtonText}>Go Back</Text>
+          <LinearGradient
+            colors={['rgba(100, 255, 218, 0.5)', 'rgba(100, 255, 218, 0.3)']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={{
+              paddingHorizontal: 24,
+              paddingVertical: 12,
+              borderRadius: 8,
+              shadowColor: COSMIC_THEME.glacialTeal,
+              shadowOffset: { width: 0, height: 2 },
+              shadowOpacity: 0.3,
+              shadowRadius: 4,
+            }}
+          >
+            <Text style={styles.retryButtonText}>Go Back</Text>
+          </LinearGradient>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -729,7 +909,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#1e293b',
   },
   backButton: {
     marginRight: 16,
@@ -767,21 +946,18 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   retryButton: {
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 8,
+    // Styles now applied through LinearGradient
   },
   retryButtonText: {
-    color: '#fff',
+    color: '#0A1128',
     fontSize: 16,
     fontWeight: '600',
   },
   researchCard: {
     margin: 16,
     padding: 16,
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   queryText: {
     fontSize: 20,
@@ -799,9 +975,9 @@ const styles = StyleSheet.create({
   feedbackCard: {
     margin: 16,
     padding: 16,
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    marginBottom: 32,
   },
   feedbackTitle: {
     fontSize: 18,
@@ -811,6 +987,7 @@ const styles = StyleSheet.create({
   ratingContainer: {
     flexDirection: 'row',
     marginBottom: 16,
+    justifyContent: 'center',
   },
   starButton: {
     padding: 4,
@@ -825,45 +1002,23 @@ const styles = StyleSheet.create({
     minHeight: 100,
   },
   submitButton: {
-    padding: 16,
-    borderRadius: 8,
-    alignItems: 'center',
+    // Styles now applied through LinearGradient
   },
   submitButtonText: {
-    color: '#fff',
     fontSize: 16,
     fontWeight: '600',
   },
   sectionContainer: {
     marginBottom: 24,
   },
-  contentH1: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 16,
-    marginTop: 24,
-  },
-  contentH2: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#444',
-    marginBottom: 12,
-    marginTop: 20,
-  },
-  contentParagraph: {
-    fontSize: 16,
-    lineHeight: 24,
-    color: '#555',
-    marginBottom: 12,
-  },
   markdownContainer: {
-    marginBottom: 16,
+    marginBottom: 8, // Reduced from 16
   },
   noResultContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    padding: 20,
   },
   noResultText: {
     fontSize: 16,
@@ -874,14 +1029,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-end',
-    marginTop: 24,
+    marginTop: 16, // Reduced from 24
   },
   actionButton: {
     padding: 8,
     borderRadius: 8,
     marginRight: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   actionButtonContent: {
     flexDirection: 'row',

@@ -5,180 +5,283 @@ import {
   StyleSheet, 
   TouchableOpacity, 
   ScrollView,
-  Image,
   ImageBackground
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { MaterialIcons, FontAwesome } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { MotiView } from 'moti';
+import { BlurView } from 'expo-blur';
+import { Platform } from 'react-native';
+import { useTheme } from '../context/ThemeContext';
+
+// Define our cosmic theme palette (fallback if theme context is not used)
+const COSMIC_THEME = {
+  midnightNavy: '#0A1128',
+  deeperNavy: '#050A18',
+  glacialTeal: 'rgba(100, 255, 218, 0.7)',
+  burnishedGold: '#FFC107',
+  deepCoralGlow: 'rgba(255, 111, 97, 0.2)',
+  charcoalSmoke: 'rgba(45, 52, 57, 0.65)',
+  paleMoonlight: '#E0E0E0',
+  cardBackground: 'rgba(45, 52, 57, 0.45)',
+  cardGlow: 'rgba(100, 255, 218, 0.1)',    
+  accentGlow: 'rgba(255, 193, 7, 0.15)',   
+};
+
+// Create a GlassMorphicCard component for consistent styling
+const GlassMorphicCard: React.FC<{
+  children: React.ReactNode;
+  style?: any;
+  intensity?: number;
+  glowColor?: string;
+}> = ({ 
+  children, 
+  style, 
+  intensity = 15,
+  glowColor = COSMIC_THEME.glacialTeal
+}) => {
+  if (Platform.OS === 'ios') {
+    return (
+      <BlurView
+        intensity={intensity}
+        tint="dark"
+        style={[{ 
+          overflow: 'hidden', 
+          borderRadius: 16,
+          shadowColor: glowColor,
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.15,
+          shadowRadius: 12,
+        }, style]}
+      >
+        <View style={{ 
+          backgroundColor: 'rgba(10, 17, 40, 0.5)', 
+          opacity: 0.7,
+          ...StyleSheet.absoluteFillObject 
+        }} />
+        {children}
+      </BlurView>
+    );
+  }
+
+  // Android fallback
+  return (
+    <View style={[{ 
+      overflow: 'hidden', 
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: 'rgba(100, 255, 218, 0.15)',
+      backgroundColor: 'rgba(10, 17, 40, 0.6)',
+      elevation: 5,
+      shadowColor: glowColor,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.15,
+      shadowRadius: 12,
+    }, style]}>
+      {children}
+    </View>
+  );
+};
 
 export default function BusinessAgentScreen() {
-  const navigation = useNavigation();
+  const navigation = useNavigation<any>();
+  const { themeMode, setThemeMode } = useTheme();
   
   const agentData = {
     id: '2',
-    name: 'Business Research Agent',
-    specialty: 'Business Research',
-    description: 'This agent specializes in market analysis, competitive research, and financial trends. It delivers data-driven insights for business decision-making.',
-    longDescription: `The Business Research Agent leverages advanced economic modeling, market analysis frameworks, and competitive intelligence tools to deliver comprehensive business insights.
+    name: 'Business & Finance Research Agent',
+    specialty: 'Business & Finance',
+    description: 'This agent specializes in business intelligence, market analysis, financial research, and strategic insights for organizational decision-making.',
+    longDescription: `The Business & Finance Research Agent delivers authoritative, data-driven insights for professionals navigating complex business landscapes and financial markets.
 
-This agent offers deep expertise in evaluating market conditions, analyzing industry trends, and providing competitive intelligence that helps businesses make informed strategic decisions.`,
+This agent excels at analyzing industry trends, market conditions, competitive landscapes, and financial performance metrics to provide actionable intelligence. It maintains a pragmatic, evidence-based approach to business questions while considering multiple strategic perspectives.`,
     idealFor: [
-      'Entrepreneurs evaluating new business opportunities',
-      'Investors analyzing financial reports',
-      'Marketers studying consumer behavior',
-      'Business analysts conducting industry research',
-      'Executives making strategic decisions'
+      'Business executives making strategic decisions',
+      'Financial analysts researching markets',
+      'Entrepreneurs developing business plans',
+      'Investors conducting due diligence',
+      'Consultants preparing client recommendations'
     ],
     exampleResearch: [
       {
-        title: 'Emerging Market Opportunities in Sustainable Energy',
-        summary: 'Analysis of investment potential, regulatory frameworks, and growth forecasts for renewable energy markets globally.'
+        title: 'Digital Transformation in Manufacturing',
+        summary: 'Analysis of Industry 4.0 technologies, implementation strategies, and competitive advantages for manufacturing businesses.'
       },
       {
-        title: 'E-commerce Trends and Consumer Behavior Analysis',
-        summary: 'In-depth research on changing purchasing patterns, platform preferences, and conversion optimization strategies.'
+        title: 'ESG Investing: Trends and Performance Metrics',
+        summary: 'Evaluation of environmental, social, and governance investment approaches, market growth, and performance compared to traditional portfolios.'
+      },
+      {
+        title: 'Supply Chain Resilience Strategies',
+        summary: 'Research on approaches to mitigate disruption risks, including diversification, nearshoring, and technology integration.'
+      },
+      {
+        title: 'Subscription Business Models: Success Factors',
+        summary: 'Analysis of recurring revenue models across industries, customer retention strategies, and financial performance metrics.'
+      },
+      {
+        title: 'Emerging Markets: Opportunities and Risks',
+        summary: 'Evaluation of high-growth markets, regulatory considerations, and strategic approaches for market entry and expansion.'
       }
     ],
-    colors: ['#1A2980', '#26D0CE'],
-    imageUri: 'https://api.a0.dev/assets/image?text=business%20meeting%20with%20data%20charts%20and%20analytics&aspect=16:9&seed=234'
+    colors: ['#1E88E5', '#1565C0'],
+    imageUri: 'https://api.a0.dev/assets/image?text=business%20meeting%20with%20charts%20and%20professionals&aspect=16:9&seed=234'
   };
 
-  // Handle navigating to ResearchChatScreen with this agent
+  // Handle navigating to ResearchParametersScreen with this agent
   const handleUseAgent = () => {
-    navigation.navigate('ResearchChatScreen', { selectedAgent: agentData });
+    // Update theme to cosmic when using the agent
+    if (themeMode !== 'cosmic') {
+      setThemeMode('cosmic');
+    }
+    navigation.navigate('ResearchParametersScreen', { agent: agentData });
+  };
+
+  // This will be implemented later to fetch research examples
+  const handleResearchClick = (research: { title: string; summary: string }) => {
+    console.log(`Research clicked: ${research.title}`);
+    // Future implementation will fetch 5 research examples
   };
 
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="light" />
       
-      {/* Header */}
+      {/* Background gradient */}
       <LinearGradient
-        colors={agentData.colors}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-        style={styles.header}
-      >
+        colors={[COSMIC_THEME.deeperNavy, COSMIC_THEME.midnightNavy]}
+        style={StyleSheet.absoluteFillObject}
+      />
+      
+      {/* Header */}
+      <View style={styles.header}>
         <TouchableOpacity 
           style={styles.backButton}
           onPress={() => navigation.navigate('AgentListScreen')}
         >
-          <MaterialIcons name="arrow-back" size={24} color="#fff" />
+          <LinearGradient
+            colors={['rgba(45, 52, 57, 0.7)', 'rgba(45, 52, 57, 0.5)']}
+            style={styles.backButtonGradient}
+          >
+            <MaterialIcons name="arrow-back" size={24} color={COSMIC_THEME.paleMoonlight} />
+          </LinearGradient>
         </TouchableOpacity>
         
-        <View style={styles.headerTitle}>
-          <MaterialIcons name="science" size={24} color="#fff" />
-          <Text style={styles.headerText}>Royal Research</Text>
-        </View>
-        
-        <View style={styles.placeholder} />
-      </LinearGradient>
+        <View style={styles.headerPlaceholder} />
+      </View>
       
       <ScrollView 
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
       >
         {/* Agent Banner */}
-        <ImageBackground
-          source={{ uri: agentData.imageUri }}
-          style={styles.banner}
-          imageStyle={styles.bannerImage}
+        <MotiView
+          from={{ opacity: 0, translateY: 20 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ type: 'timing', duration: 500 } as any}
+          style={styles.bannerContainer}
         >
-          <LinearGradient
-            colors={['transparent', 'rgba(0,0,0,0.7)']}
-            style={styles.bannerGradient}
+          <ImageBackground
+            source={{ uri: agentData.imageUri }}
+            style={styles.banner}
+            imageStyle={styles.bannerImage}
           >
-            <MotiView
-              from={{ opacity: 0, translateY: 20 }}
-              animate={{ opacity: 1, translateY: 0 }}
-              transition={{ type: 'timing', duration: 500 }}
+            <LinearGradient
+              colors={['transparent', 'rgba(0,0,0,0.8)']}
+              style={styles.bannerGradient}
             >
               <Text style={styles.agentName}>{agentData.name}</Text>
               <View style={styles.specialtyContainer}>
-                <MaterialIcons name="business-center" size={16} color="#fff" />
+                <FontAwesome name="line-chart" size={16} color="#fff" />
                 <Text style={styles.specialtyText}>{agentData.specialty}</Text>
               </View>
-            </MotiView>
-          </LinearGradient>
-        </ImageBackground>
+            </LinearGradient>
+          </ImageBackground>
+        </MotiView>
         
         {/* Description Section */}
         <MotiView
           from={{ opacity: 0, translateY: 20 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'timing', duration: 500, delay: 100 }}
-          style={styles.section}
+          transition={{ type: 'timing', duration: 500, delay: 100 } as any}
         >
-          <Text style={styles.sectionTitle}>About This Agent</Text>
-          <Text style={styles.descriptionText}>{agentData.description}</Text>
-          
-          {agentData.longDescription.split('\n\n').map((paragraph, index) => (
-            <Text key={index} style={styles.paragraphText}>{paragraph}</Text>
-          ))}
+          <GlassMorphicCard style={styles.section}>
+            <Text style={styles.sectionTitle}>About This Agent</Text>
+            <Text style={styles.descriptionText}>{agentData.description}</Text>
+            
+            {agentData.longDescription.split('\n\n').map((paragraph, index) => (
+              <Text key={index} style={styles.paragraphText}>{paragraph}</Text>
+            ))}
+          </GlassMorphicCard>
         </MotiView>
         
         {/* Ideal For Section */}
         <MotiView
           from={{ opacity: 0, translateY: 20 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'timing', duration: 500, delay: 200 }}
-          style={styles.section}
+          transition={{ type: 'timing', duration: 500, delay: 200 } as any}
         >
-          <Text style={styles.sectionTitle}>Ideal For</Text>
-          {agentData.idealFor.map((item, index) => (
-            <View key={index} style={styles.idealItem}>
-              <MaterialIcons name="check-circle" size={18} color={agentData.colors[0]} />
-              <Text style={styles.idealItemText}>{item}</Text>
-            </View>
-          ))}
+          <GlassMorphicCard style={styles.section}>
+            <Text style={styles.sectionTitle}>Ideal For</Text>
+            {agentData.idealFor.map((item, index) => (
+              <View key={index} style={styles.idealItem}>
+                <MaterialIcons name="check-circle" size={18} color={agentData.colors[0]} />
+                <Text style={styles.idealItemText}>{item}</Text>
+              </View>
+            ))}
+          </GlassMorphicCard>
         </MotiView>
         
         {/* Example Research Section */}
         <MotiView
           from={{ opacity: 0, translateY: 20 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'timing', duration: 500, delay: 300 }}
-          style={styles.section}
+          transition={{ type: 'timing', duration: 500, delay: 300 } as any}
         >
-          <Text style={styles.sectionTitle}>Example Research</Text>
-          {agentData.exampleResearch.map((research, index) => (
-            <View key={index} style={styles.researchItem}>
-              <LinearGradient
-                colors={['rgba(26, 41, 128, 0.1)', 'rgba(38, 208, 206, 0.05)']}
-                style={styles.researchGradient}
+          <GlassMorphicCard style={styles.section}>
+            <Text style={styles.sectionTitle}>Example Research</Text>
+            {agentData.exampleResearch.map((research, index) => (
+              <TouchableOpacity 
+                key={index} 
+                style={styles.researchItem}
+                onPress={() => handleResearchClick(research)}
+                activeOpacity={0.7}
               >
-                <Text style={styles.researchTitle}>{research.title}</Text>
-                <Text style={styles.researchSummary}>{research.summary}</Text>
-              </LinearGradient>
-            </View>
-          ))}
+                <LinearGradient
+                  colors={[`${agentData.colors[0]}20`, `${agentData.colors[1]}10`]}
+                  style={styles.researchGradient}
+                >
+                  <View style={styles.researchContent}>
+                    <Text style={styles.researchTitle}>{research.title}</Text>
+                    <Text style={styles.researchSummary}>{research.summary}</Text>
+                  </View>
+                  <MaterialIcons name="arrow-forward" size={20} color={agentData.colors[0]} />
+                </LinearGradient>
+              </TouchableOpacity>
+            ))}
+          </GlassMorphicCard>
         </MotiView>
+        
+        <View style={styles.spacer} />
       </ScrollView>
       
-      {/* Action Buttons */}
+      {/* Action Button */}
       <View style={styles.actionContainer}>
-        <TouchableOpacity 
-          style={styles.goBackButton}
-          onPress={() => navigation.navigate('AgentListScreen')}
-        >
-          <Text style={styles.goBackText}>Go Back</Text>
-        </TouchableOpacity>
-        
         <TouchableOpacity 
           style={styles.useAgentButton}
           onPress={handleUseAgent}
         >
           <LinearGradient
-            colors={agentData.colors}
+            colors={agentData.colors as [string, string]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
             style={styles.useAgentGradient}
           >
-            <Text style={styles.useAgentText}>Use This Agent</Text>
+            <Text style={styles.useAgentText}>Start Research</Text>
+            <MaterialIcons name="arrow-forward" size={22} color="#fff" style={styles.buttonIcon} />
           </LinearGradient>
         </TouchableOpacity>
       </View>
@@ -189,7 +292,7 @@ This agent offers deep expertise in evaluating market conditions, analyzing indu
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f5f7fa',
+    backgroundColor: COSMIC_THEME.deeperNavy,
   },
   header: {
     flexDirection: 'row',
@@ -199,23 +302,28 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
   },
   backButton: {
-    padding: 6,
+    borderRadius: 30,
+    overflow: 'hidden',
   },
-  headerTitle: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  backButtonGradient: {
+    padding: 8,
+    borderRadius: 30, 
+    borderWidth: 1,
+    borderColor: 'rgba(100, 255, 218, 0.15)',
   },
-  headerText: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#fff',
-    marginLeft: 8,
-  },
-  placeholder: {
-    width: 36,
+  headerPlaceholder: {
+    width: 40,
   },
   scrollView: {
     flex: 1,
+  },
+  bannerContainer: {
+    marginHorizontal: 16,
+    borderRadius: 16,
+    overflow: 'hidden',
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   banner: {
     height: 200,
@@ -223,6 +331,7 @@ const styles = StyleSheet.create({
   },
   bannerImage: {
     resizeMode: 'cover',
+    borderRadius: 16,
   },
   bannerGradient: {
     padding: 20,
@@ -254,31 +363,24 @@ const styles = StyleSheet.create({
   },
   section: {
     padding: 20,
-    backgroundColor: '#fff',
     marginHorizontal: 16,
-    marginTop: 16,
-    borderRadius: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    marginBottom: 16,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#333',
+    color: COSMIC_THEME.paleMoonlight,
     marginBottom: 12,
   },
   descriptionText: {
     fontSize: 16,
-    color: '#555',
+    color: 'rgba(255, 255, 255, 0.8)',
     lineHeight: 24,
     marginBottom: 16,
   },
   paragraphText: {
     fontSize: 15,
-    color: '#555',
+    color: 'rgba(255, 255, 255, 0.7)',
     lineHeight: 24,
     marginBottom: 12,
   },
@@ -289,64 +391,72 @@ const styles = StyleSheet.create({
   },
   idealItemText: {
     fontSize: 15,
-    color: '#555',
+    color: 'rgba(255, 255, 255, 0.8)',
     lineHeight: 22,
     flex: 1,
     marginLeft: 8,
   },
   researchItem: {
     marginBottom: 12,
-    borderRadius: 8,
+    borderRadius: 12,
     overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   researchGradient: {
     padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  researchContent: {
+    flex: 1,
+    marginRight: 12,
   },
   researchTitle: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#333',
+    color: COSMIC_THEME.paleMoonlight,
     marginBottom: 8,
   },
   researchSummary: {
     fontSize: 14,
-    color: '#666',
-    lineHeight: 22,
+    color: 'rgba(255, 255, 255, 0.6)',
+    lineHeight: 20,
+  },
+  spacer: {
+    height: 80,
   },
   actionContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: '#fff',
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 16,
+    backgroundColor: 'rgba(5, 10, 24, 0.8)',
     borderTopWidth: 1,
-    borderTopColor: '#eee',
-  },
-  goBackButton: {
-    flex: 1,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    marginRight: 10,
-    alignItems: 'center',
-  },
-  goBackText: {
-    color: '#555',
-    fontSize: 16,
-    fontWeight: '600',
+    borderTopColor: 'rgba(100, 255, 218, 0.1)',
   },
   useAgentButton: {
-    flex: 2,
-    borderRadius: 8,
+    borderRadius: 12,
     overflow: 'hidden',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
   },
   useAgentGradient: {
-    padding: 14,
+    padding: 16,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
   },
   useAgentText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '600',
+  },
+  buttonIcon: {
+    marginLeft: 8,
   },
 });

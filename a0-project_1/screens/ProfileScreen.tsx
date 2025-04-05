@@ -16,13 +16,13 @@ import {
   Alert,
   RefreshControl
 } from 'react-native';
-import { ThemeToggle } from '../components/ui/ThemeToggle';
 import { useNavigation } from '@react-navigation/native';
 import { MaterialIcons, Ionicons, FontAwesome5, MaterialCommunityIcons, Feather } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { MotiView } from 'moti';
+import { BlurView } from 'expo-blur';
 import { toast } from 'sonner-native';
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '../utils/supabase';
@@ -37,9 +37,78 @@ import {
 import { useUser } from '../context/UserContext';
 import { areNotificationsEnabled, toggleNotifications } from '../utils/notificationService';
 
+// Define our cosmic theme palette
+const COSMIC_THEME = {
+  midnightNavy: '#0A1128',
+  deeperNavy: '#050A18',
+  glacialTeal: 'rgba(100, 255, 218, 0.7)',
+  burnishedGold: '#FFC107',
+  deepCoralGlow: 'rgba(255, 111, 97, 0.2)',
+  charcoalSmoke: 'rgba(45, 52, 57, 0.65)',
+  paleMoonlight: '#E0E0E0',
+  cardBackground: 'rgba(45, 52, 57, 0.45)',
+  cardGlow: 'rgba(100, 255, 218, 0.1)',    
+  accentGlow: 'rgba(255, 193, 7, 0.15)',   
+};
+
+// Create a GlassMorphicCard component for consistent styling
+const GlassMorphicCard: React.FC<{
+  children: React.ReactNode;
+  style?: any;
+  intensity?: number;
+  glowColor?: string;
+}> = ({ 
+  children, 
+  style, 
+  intensity = 15,
+  glowColor = COSMIC_THEME.glacialTeal
+}) => {
+  if (Platform.OS === 'ios') {
+    return (
+      <BlurView
+        intensity={intensity}
+        tint="dark"
+        style={[{ 
+          overflow: 'hidden', 
+          borderRadius: 16,
+          shadowColor: glowColor,
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.15,
+          shadowRadius: 12,
+        }, style]}
+      >
+        <View style={{ 
+          backgroundColor: 'rgba(10, 17, 40, 0.5)', 
+          opacity: 0.7,
+          ...StyleSheet.absoluteFillObject 
+        }} />
+        {children}
+      </BlurView>
+    );
+  }
+
+  // Android fallback
+  return (
+    <View style={[{ 
+      overflow: 'hidden', 
+      borderRadius: 16,
+      borderWidth: 1,
+      borderColor: 'rgba(100, 255, 218, 0.15)',
+      backgroundColor: 'rgba(10, 17, 40, 0.6)',
+      elevation: 5,
+      shadowColor: glowColor,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.15,
+      shadowRadius: 12,
+    }, style]}>
+      {children}
+    </View>
+  );
+};
+
 export default function ProfileScreen() {
   const navigation = useNavigation<any>();
-  const { isDarkMode, theme, toggleTheme } = useTheme();  // Profile state
+  const { themeMode, theme, toggleTheme, setThemeMode } = useTheme();
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [profileData, setProfileData] = useState<ProfileData>({
@@ -78,6 +147,11 @@ export default function ProfileScreen() {
   useEffect(() => {
     fetchUserProfile();
     fetchUserEmail();
+    
+    // Set theme to cosmic on profile screen
+    if (themeMode !== 'cosmic') {
+      setThemeMode('cosmic');
+    }
   }, []);
 
   useEffect(() => {
@@ -291,10 +365,10 @@ export default function ProfileScreen() {
       
       toast.success('Signed out successfully');
       
-      // Navigate to Login screen with reset to prevent going back
+      // Navigate to LandingScreen instead of Login
       navigation.reset({
         index: 0,
-        routes: [{ name: 'Login' }],
+        routes: [{ name: 'Landing' }],
       });
     } catch (error) {
       console.error('Error logging out:', error);
@@ -358,315 +432,290 @@ export default function ProfileScreen() {
   if (emailLoading) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#4caf50" />
+        <ActivityIndicator size="large" color={COSMIC_THEME.glacialTeal} />
       </View>
     );
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      <StatusBar style={isDarkMode ? "light" : "dark"} />
+    <SafeAreaView style={styles.container}>
+      <StatusBar style="light" />
+      
+      {/* Background gradient */}
+      <LinearGradient
+        colors={[COSMIC_THEME.deeperNavy, COSMIC_THEME.midnightNavy]}
+        style={StyleSheet.absoluteFillObject}
+      />
       
       {/* Header */}
-      <Animated.View style={[
-        styles.header,
-        { 
-          backgroundColor: theme.card,
-          opacity: headerOpacity,
-          shadowOpacity: headerOpacity,
-          borderBottomColor: theme.border 
-        }
-      ]}>
-        <TouchableOpacity 
+      <View style={styles.header}>
+        <TouchableOpacity
           style={styles.backButton}
           onPress={() => navigation.goBack()}
         >
-          <Ionicons name="arrow-back" size={24} color={theme.text} />
+          <MaterialIcons name="arrow-back" size={24} color={COSMIC_THEME.paleMoonlight} />
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.text }]}>Profile</Text>
-        <View style={styles.headerRight} />
-      </Animated.View>
+        <Text style={styles.headerTitle}>Profile</Text>
+        <TouchableOpacity
+          style={styles.logoutButton}
+          onPress={handleLogout}
+        >
+          <MaterialIcons name="logout" size={24} color={COSMIC_THEME.paleMoonlight} />
+        </TouchableOpacity>
+      </View>
       
-      <ScrollView 
-        style={styles.scrollView}
+      <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
-        scrollEventThrottle={16}
-        onScroll={Animated.event(
-          [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-          { useNativeDriver: false }
-        )}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
             onRefresh={handleRefresh}
-            colors={['#6c63ff']}
-            tintColor={isDarkMode ? '#6c63ff' : '#3f51b5'}
+            tintColor={COSMIC_THEME.glacialTeal}
+            colors={[COSMIC_THEME.glacialTeal]}
           />
         }
       >
-        {/* Profile Section */}
+        {/* Profile Card */}
         <MotiView
           from={{ opacity: 0, translateY: 20 }}
           animate={{ opacity: 1, translateY: 0 }}
           transition={{ type: 'timing', duration: 600 }}
-          style={[styles.profileSection, { backgroundColor: theme.card }]}
         >
-          <View style={styles.profileImageSection}>
-            <TouchableOpacity 
-              style={styles.profileImageContainer}
-              onPress={pickImage}
-              disabled={loading}
-            >
-              {loading ? (
-                <View style={[styles.profileImage, { backgroundColor: theme.inputBackground }]}>
-                  <ActivityIndicator size="large" color={theme.accent} />
-                </View>
-              ) : (
-                <>
-                  <Image
-                    source={{ 
-                      uri: profileData.avatarUrl || 
-                           "https://api.a0.dev/assets/image?text=minimal%20profile%20avatar%20professional&aspect=1:1&seed=123"
-                    }}
-                    style={styles.profileImage}
+          <GlassMorphicCard style={styles.profileCard}>
+            {isEditing ? (
+              // Edit mode profile
+              <View style={styles.editProfileContent}>
+                <TouchableOpacity 
+                  style={styles.avatarContainer} 
+                  onPress={pickImage}
+                >
+                  <Image 
+                    source={{ uri: profileImage }} 
+                    style={styles.avatar} 
                   />
-                  <View style={styles.editImageButton}>
-                    <MaterialIcons name="photo-camera" size={20} color="#fff" />
+                  <View style={styles.editAvatarOverlay}>
+                    <MaterialIcons name="photo-camera" size={24} color="#fff" />
                   </View>
-                </>
-              )}
-            </TouchableOpacity>
-          </View>
-          
-          {isEditing ? (
-            <View style={styles.editContainer}>
-              <TextInput
-                style={[styles.editInput, { color: theme.text, backgroundColor: theme.inputBackground }]}
-                value={username}
-                onChangeText={setUsername}
-                placeholder="Username"
-                placeholderTextColor={theme.secondaryText}
-                autoCapitalize="none"
-              />
-              {error ? <Text style={styles.errorText}>{error}</Text> : null}
-              
-              <TextInput
-                style={[styles.editInput, { color: theme.text, backgroundColor: theme.inputBackground }]}
-                value={profileData.email}
-                editable={false}
-                placeholder="Email"
-                placeholderTextColor={theme.secondaryText}
-              />
-              
-              <TextInput
-                style={[styles.editInput, { color: theme.text, backgroundColor: theme.inputBackground, minHeight: 80 }]}
-                value={bio}
-                onChangeText={setBio}
-                placeholder="Bio"
-                placeholderTextColor={theme.secondaryText}
-                multiline
-                textAlignVertical="top"
-              />
-              
-              <View style={styles.editActions}>
-                <TouchableOpacity 
-                  style={[styles.editButton, styles.cancelButton, { borderColor: theme.border }]}
-                  onPress={() => {
-                    setUsername(profileData.username);
-                    setBio(profileData.bio);
-                    setError('');
-                    setIsEditing(false);
-                  }}
-                >
-                  <Text style={[styles.cancelButtonText, { color: theme.secondaryText }]}>Cancel</Text>
                 </TouchableOpacity>
-                <TouchableOpacity 
-                  style={styles.editButton}
-                  onPress={handleSaveProfile}
-                  disabled={loading}
-                >
-                  <LinearGradient
-                    colors={theme.gradient}
-                    style={styles.saveButtonGradient}
-                  >
-                    {loading ? (
-                      <ActivityIndicator color="#fff" size="small" />
-                    ) : (
-                      <Text style={styles.saveButtonText}>Save Changes</Text>
-                    )}
-                  </LinearGradient>
-                </TouchableOpacity>
+                
+                <View style={styles.editForm}>
+                  <Text style={styles.editLabel}>Username</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={username}
+                    onChangeText={setUsername}
+                    placeholder="Enter username"
+                    placeholderTextColor="rgba(255, 255, 255, 0.5)"
+                  />
+                  
+                  <Text style={styles.editLabel}>Bio</Text>
+                  <TextInput
+                    style={[styles.input, styles.bioInput]}
+                    value={bio}
+                    onChangeText={setBio}
+                    placeholder="Tell us about yourself"
+                    placeholderTextColor="rgba(255, 255, 255, 0.5)"
+                    multiline
+                  />
+                  
+                  {error ? <Text style={styles.errorText}>{error}</Text> : null}
+                  
+                  <View style={styles.editButtons}>
+                    <TouchableOpacity 
+                      style={[styles.editButton, styles.cancelButton]}
+                      onPress={() => {
+                        setUsername(profileData.username);
+                        setBio(profileData.bio);
+                        setIsEditing(false);
+                        setError('');
+                      }}
+                    >
+                      <Text style={styles.editButtonText}>Cancel</Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity 
+                      style={[styles.editButton, styles.saveButton]}
+                      onPress={handleSaveProfile}
+                    >
+                      {loading ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <Text style={styles.editButtonText}>Save</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </View>
               </View>
-            </View>
-          ) : (
-            <View style={styles.profileInfo}>
-              <Text style={[styles.userName, { color: theme.text }]}>
-                {profileData.username || 'No username set'}
-              </Text>
-              <Text style={[styles.userEmail, { color: theme.secondaryText }]}>
-                {profileData.email || 'No email available'}
-              </Text>
-              <Text style={[styles.userBio, { color: theme.secondaryText }]}>
-                {profileData.bio || 'No bio added yet'}
-              </Text>
-              
-              <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+            ) : (
+              // View mode profile
+              <View style={styles.profileContent}>
+                <View style={styles.profileHeader}>
+                  <Image 
+                    source={{ uri: profileImage }} 
+                    style={styles.avatar} 
+                  />
+                  
+                  <View style={styles.profileDetails}>
+                    <Text style={styles.username}>{profileData.username || 'Guest User'}</Text>
+                    
+                    {emailLoading ? (
+                      <ActivityIndicator size="small" color={COSMIC_THEME.glacialTeal} />
+                    ) : (
+                      <Text style={styles.email}>{userEmail || 'No email available'}</Text>
+                    )}
+                  </View>
+                </View>
+                
+                {profileData.bio ? (
+                  <Text style={styles.bio}>{profileData.bio}</Text>
+                ) : (
+                  <Text style={styles.emptyBio}>No bio added yet</Text>
+                )}
+                
                 <TouchableOpacity 
                   style={styles.editProfileButton}
                   onPress={handleEditProfilePress}
                 >
                   <LinearGradient
-                    colors={theme.gradient}
+                    colors={['#4A00E0', '#8E2DE2']}
                     style={styles.editProfileGradient}
                   >
                     <MaterialIcons name="edit" size={20} color="#fff" />
                     <Text style={styles.editProfileText}>Edit Profile</Text>
                   </LinearGradient>
                 </TouchableOpacity>
-              </Animated.View>
+              </View>
+            )}
+          </GlassMorphicCard>
+        </MotiView>
+        
+        {/* Preferences Section */}
+        <MotiView
+          from={{ opacity: 0, translateY: 20 }}
+          animate={{ opacity: 1, translateY: 0 }}
+          transition={{ type: 'timing', duration: 600, delay: 100 }}
+        >
+          <GlassMorphicCard style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <MaterialIcons name="settings" size={22} color={COSMIC_THEME.glacialTeal} />
+              <Text style={styles.sectionTitle}>Preferences</Text>
             </View>
-          )}
-        </MotiView>        {/* Settings Section */}
+            
+            <View style={styles.preferencesList}>
+              <TouchableOpacity 
+                style={styles.preferenceItem}
+                onPress={() => navigation.navigate('ChangePasswordScreen')}
+              >
+                <View style={styles.preferenceContent}>
+                  <MaterialIcons 
+                    name="lock" 
+                    size={24} 
+                    color={COSMIC_THEME.glacialTeal} 
+                  />
+                  <Text style={styles.preferenceText}>
+                    Change Password
+                  </Text>
+                </View>
+                <MaterialIcons 
+                  name="chevron-right" 
+                  size={24} 
+                  color="rgba(255, 255, 255, 0.5)" 
+                />
+              </TouchableOpacity>
+
+              <View style={styles.preferenceItem}>
+                <View style={styles.preferenceContent}>
+                  <MaterialIcons 
+                    name="notifications" 
+                    size={24} 
+                    color={COSMIC_THEME.glacialTeal} 
+                  />
+                  <Text style={styles.preferenceText}>
+                    Push Notifications
+                  </Text>
+                </View>
+                <Switch
+                  value={pushNotifications}
+                  onValueChange={async (value) => {
+                    try {
+                      const success = await toggleNotifications(value);
+                      if (success) {
+                        setPushNotifications(value);
+                      } else {
+                        setPushNotifications(false);
+                        toast('Could not enable notifications. Please check your permissions.', {
+                          duration: 3000,
+                          type: 'warning',
+                        });
+                      }
+                    } catch (error) {
+                      console.error('Error toggling notifications:', error);
+                      setPushNotifications(false);
+                    }
+                  }}
+                  trackColor={{ false: 'rgba(255, 255, 255, 0.2)', true: 'rgba(100, 255, 218, 0.3)' }}
+                  thumbColor={COSMIC_THEME.paleMoonlight}
+                  ios_backgroundColor="rgba(255, 255, 255, 0.1)"
+                />
+              </View>
+              
+              <View style={styles.preferenceItem}>
+                <View style={styles.preferenceContent}>
+                  <MaterialIcons 
+                    name="notifications-active" 
+                    size={24} 
+                    color={COSMIC_THEME.glacialTeal} 
+                  />
+                  <Text style={styles.preferenceText}>
+                    In-app Notifications
+                  </Text>
+                </View>
+                <Switch
+                  value={inAppNotifications}
+                  onValueChange={setInAppNotifications}
+                  trackColor={{ false: 'rgba(255, 255, 255, 0.2)', true: 'rgba(100, 255, 218, 0.3)' }}
+                  thumbColor={COSMIC_THEME.paleMoonlight}
+                  ios_backgroundColor="rgba(255, 255, 255, 0.1)"
+                />
+              </View>
+              
+              <TouchableOpacity 
+                style={styles.preferenceItem}
+                onPress={() => navigation.navigate('HelpCenterScreen')}
+              >
+                <View style={styles.preferenceContent}>
+                  <MaterialIcons 
+                    name="help-outline" 
+                    size={24} 
+                    color={COSMIC_THEME.glacialTeal} 
+                  />
+                  <Text style={styles.preferenceText}>
+                    Help Center
+                  </Text>
+                </View>
+                <MaterialIcons 
+                  name="chevron-right" 
+                  size={24} 
+                  color="rgba(255, 255, 255, 0.5)" 
+                />
+              </TouchableOpacity>
+            </View>
+          </GlassMorphicCard>
+        </MotiView>
+        
+        {/* Developer Options */}
         <MotiView
           from={{ opacity: 0, translateY: 20 }}
           animate={{ opacity: 1, translateY: 0 }}
           transition={{ type: 'timing', duration: 600, delay: 200 }}
-          style={[styles.settingsSection, { backgroundColor: theme.card }]}
         >
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Preferences</Text>          <View style={[styles.settingRow, { borderBottomColor: theme.border }]}>
-            <View style={styles.settingInfo}>
-              <Ionicons 
-                name={isDarkMode ? "moon" : "sunny"} 
-                size={22} 
-                color={theme.accent} 
-              />
-              <Text style={[styles.settingText, { color: theme.text }]}>Dark Mode</Text>
-            </View>
-            <ThemeToggle />
-          </View>          <TouchableOpacity 
-            style={[styles.settingRow, { borderBottomColor: theme.border }]}
-            onPress={() => navigation.navigate('ChangePasswordScreen')}
-          >
-            <View style={styles.settingInfo}>
-              <MaterialIcons 
-                name="lock" 
-                size={22} 
-                color={theme.accent} 
-              />
-              <Text style={[styles.settingText, { color: theme.text }]}>Change Password</Text>
-            </View>
-            <MaterialIcons name="chevron-right" size={22} color={theme.secondaryText} />
-          </TouchableOpacity>
-
-          <View style={[styles.settingRow, { borderBottomColor: theme.border }]}>
-            <View style={styles.settingInfo}>
-              <MaterialIcons 
-                name="notifications" 
-                size={22} 
-                color={theme.accent} 
-              />
-              <Text style={[styles.settingText, { color: theme.text }]}>Push Notifications</Text>
-            </View>
-            <Switch
-              value={pushNotifications}
-              onValueChange={async (value) => {
-                try {
-                  const success = await toggleNotifications(value);
-                  if (success) {
-                    setPushNotifications(value);
-                  } else {
-                    // If failed to enable, revert the toggle
-                    setPushNotifications(false);
-                    toast('Could not enable notifications. Please check your permissions.', {
-                      duration: 3000,
-                      type: 'warning',
-                    });
-                  }
-                } catch (error) {
-                  console.error('Error toggling notifications:', error);
-                  setPushNotifications(false);
-                }
-              }}
-              trackColor={{ false: '#DEE2E6', true: theme.accent }}
-              thumbColor={'#FFFFFF'}
-            />
-          </View>
-          
-          <View style={styles.settingRow}>
-            <View style={styles.settingInfo}>
-              <MaterialIcons 
-                name="notifications-active" 
-                size={22} 
-                color={theme.accent} 
-              />
-              <Text style={[styles.settingText, { color: theme.text }]}>In-app Notifications</Text>
-            </View>
-            <Switch
-              value={inAppNotifications}
-              onValueChange={setInAppNotifications}
-              trackColor={{ false: '#DEE2E6', true: theme.accent }}
-              thumbColor={'#FFFFFF'}
-            />
-          </View>
-        </MotiView>
-        
-        {/* Support Section */}
-        <MotiView
-          from={{ opacity: 0, translateY: 20 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'timing', duration: 600, delay: 300 }}
-          style={[styles.supportSection, { backgroundColor: theme.card }]}
-        >
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>Support</Text>
-          
           <TouchableOpacity 
-            style={[styles.supportRow, { borderBottomColor: theme.border }]}
-            onPress={() => toast.info('Help Center feature coming soon')}
-          >
-            <View style={styles.supportIconContainer}>
-              <MaterialIcons name="help-outline" size={22} color={theme.accent} />
-            </View>
-            <Text style={[styles.supportText, { color: theme.text }]}>Help Center</Text>
-            <MaterialIcons name="chevron-right" size={22} color={theme.secondaryText} />
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={[styles.supportRow, { borderBottomColor: theme.border }]}
-            onPress={() => toast.info('Privacy Policy will open in browser')}
-          >
-            <View style={styles.supportIconContainer}>
-              <MaterialIcons name="security" size={22} color={theme.accent} />
-            </View>
-            <Text style={[styles.supportText, { color: theme.text }]}>Privacy Policy</Text>
-            <MaterialIcons name="chevron-right" size={22} color={theme.secondaryText} />
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={styles.supportRow}
-            onPress={() => toast.info('Terms of Service will open in browser')}
-          >
-            <View style={styles.supportIconContainer}>
-              <MaterialIcons name="description" size={22} color={theme.accent} />
-            </View>
-            <Text style={[styles.supportText, { color: theme.text }]}>Terms of Service</Text>
-            <MaterialIcons name="chevron-right" size={22} color={theme.secondaryText} />
-          </TouchableOpacity>
-          
-          {/* Developer Mode Button - Hidden by default */}
-          <TouchableOpacity 
-            style={[styles.supportRow, { marginTop: 20, borderTopWidth: 1, borderTopColor: theme.border }]}
+            style={styles.devButton}
             onPress={() => navigation.navigate('DevPasswordScreen')}
           >
-            <View style={styles.supportIconContainer}>
-              <MaterialIcons name="code" size={22} color={theme.accent} />
-            </View>
-            <Text style={[styles.supportText, { color: theme.text }]}>Dev Page</Text>
-            <MaterialIcons 
-              name="chevron-right" 
-              size={22} 
-              color={theme.secondaryText} 
-            />
+            <MaterialIcons name="code" size={22} color={COSMIC_THEME.glacialTeal} />
+            <Text style={styles.devButtonText}>Developer Options</Text>
           </TouchableOpacity>
         </MotiView>
         
@@ -674,31 +723,15 @@ export default function ProfileScreen() {
         <MotiView
           from={{ opacity: 0, translateY: 20 }}
           animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'timing', duration: 600, delay: 400 }}
+          transition={{ type: 'timing', duration: 600, delay: 300 }}
           style={styles.versionContainer}
         >
           <View style={styles.versionContent}>
-            <MaterialCommunityIcons name="flask-outline" size={18} color={theme.secondaryText} />
-            <Text style={[styles.versionText, { color: theme.secondaryText }]}>
-              Royal Research • Version 1.0.0
+            <MaterialCommunityIcons name="flask-outline" size={18} color="rgba(255, 255, 255, 0.5)" />
+            <Text style={styles.versionText}>
+              Version 1.0.0 (Beta)
             </Text>
           </View>
-        </MotiView>
-        
-        {/* Logout Button */}
-        <MotiView
-          from={{ opacity: 0, translateY: 20 }}
-          animate={{ opacity: 1, translateY: 0 }}
-          transition={{ type: 'timing', duration: 600, delay: 500 }}
-          style={styles.logoutContainer}
-        >
-          <TouchableOpacity 
-            style={[styles.logoutButton, { backgroundColor: 'rgba(231, 76, 60, 0.1)' }]}
-            onPress={handleLogout}
-          >
-            <MaterialIcons name="logout" size={20} color="#e74c3c" />
-            <Text style={styles.logoutText}>Logout</Text>
-          </TouchableOpacity>
         </MotiView>
       </ScrollView>
     </SafeAreaView>
@@ -708,309 +741,240 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: COSMIC_THEME.deeperNavy,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    zIndex: 10,
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
+    paddingVertical: 12,
   },
   backButton: {
     padding: 8,
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: COSMIC_THEME.paleMoonlight,
   },
-  headerRight: {
-    width: 40,
+  logoutButton: {
+    padding: 8,
   },
-  scrollView: {
-    flex: 1,
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 40,
   },
-  profileSection: {
-    alignItems: 'center',
-    borderRadius: 24,
-    margin: 16,
-    marginTop: 70,
-    padding: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  profileImageSection: {
-    marginTop: -60,
+  profileCard: {
+    padding: 20,
     marginBottom: 16,
   },
-  profileImageContainer: {
-    position: 'relative',
-  },
-  profileImage: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    borderWidth: 4,
-    borderColor: '#fff',
-  },
-  editImageButton: {
-    position: 'absolute',
-    right: 0,
-    bottom: 0,
-    backgroundColor: '#6c63ff',
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: 'center',
+  profileContent: {
     alignItems: 'center',
-    borderWidth: 3,
-    borderColor: 'white',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
-    elevation: 5,
   },
-  profileInfo: {
+  profileHeader: {
+    flexDirection: 'row',
     alignItems: 'center',
     width: '100%',
+    marginBottom: 16,
   },
-  userName: {
-    fontSize: 24,
+  avatar: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    borderWidth: 2,
+    borderColor: COSMIC_THEME.glacialTeal,
+  },
+  profileDetails: {
+    marginLeft: 16,
+    flex: 1,
+  },
+  username: {
+    fontSize: 20,
     fontWeight: 'bold',
+    color: COSMIC_THEME.paleMoonlight,
     marginBottom: 4,
-    textAlign: 'center',
   },
-  userEmail: {
-    fontSize: 16,
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  userBio: {
+  email: {
     fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.7)',
+  },
+  bio: {
+    fontSize: 15,
+    color: 'rgba(255, 255, 255, 0.8)',
     textAlign: 'center',
     marginBottom: 20,
-    paddingHorizontal: 10,
-    lineHeight: 20,
+    lineHeight: 22,
+  },
+  emptyBio: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.5)',
+    fontStyle: 'italic',
+    textAlign: 'center',
+    marginBottom: 20,
   },
   editProfileButton: {
-    borderRadius: 12,
     overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    borderRadius: 20,
+    alignSelf: 'center',
   },
   editProfileGradient: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 20,
   },
   editProfileText: {
     color: '#fff',
-    fontSize: 16,
     fontWeight: '600',
     marginLeft: 8,
   },
-  editContainer: {
+  // Edit mode styles
+  editProfileContent: {
+    alignItems: 'center',
+  },
+  avatarContainer: {
+    position: 'relative',
+    marginBottom: 16,
+  },
+  editAvatarOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: COSMIC_THEME.glacialTeal,
+  },
+  editForm: {
     width: '100%',
   },
-  editInput: {
-    width: '100%',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginBottom: 12,
-    fontSize: 16,
+  editLabel: {
+    fontSize: 14,
+    color: COSMIC_THEME.glacialTeal,
+    marginBottom: 8,
   },
-  editActions: {
+  input: {
+    backgroundColor: 'rgba(10, 17, 40, 0.6)',
+    borderWidth: 1,
+    borderColor: 'rgba(100, 255, 218, 0.3)',
+    borderRadius: 8,
+    padding: 12,
+    color: COSMIC_THEME.paleMoonlight,
+    marginBottom: 16,
+  },
+  bioInput: {
+    height: 100,
+    textAlignVertical: 'top',
+  },
+  errorText: {
+    color: '#ff6b6b',
+    marginBottom: 16,
+  },
+  editButtons: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 16,
+    marginTop: 8,
   },
   editButton: {
     flex: 1,
-    borderRadius: 12,
-    overflow: 'hidden',
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   cancelButton: {
-    marginRight: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    marginRight: 8,
+  },
+  saveButton: {
+    backgroundColor: 'rgba(100, 255, 218, 0.2)',
     borderWidth: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    borderColor: 'rgba(100, 255, 218, 0.3)',
+    marginLeft: 8,
   },
-  cancelButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    textAlign: 'center',
-    padding: 12,
-  },
-  saveButtonGradient: {
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  saveButtonText: {
-    color: '#fff',
-    fontSize: 16,
+  editButtonText: {
+    color: COSMIC_THEME.paleMoonlight,
     fontWeight: '600',
   },
-  infoSection: {
-    margin: 16,
-    marginTop: 0,
-    borderRadius: 24,
+  // Preferences section
+  section: {
     padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 5,
+    marginBottom: 16,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
   },
   sectionTitle: {
     fontSize: 18,
-    fontWeight: '700',
-    marginBottom: 16,
+    fontWeight: 'bold',
+    color: COSMIC_THEME.paleMoonlight,
+    marginLeft: 8,
   },
-  infoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    borderBottomWidth: 1,
+  preferencesList: {
+    backgroundColor: 'rgba(10, 17, 40, 0.3)',
+    borderRadius: 12,
+    overflow: 'hidden',
   },
-  infoIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(108, 99, 255, 0.1)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 16,
-  },
-  infoContent: {
-    flex: 1,
-  },
-  infoLabel: {
-    fontSize: 12,
-    marginBottom: 2,
-  },
-  infoValue: {
-    fontSize: 15,
-    fontWeight: '500',
-  },
-  settingsSection: {
-    margin: 16,
-    marginTop: 0,
-    borderRadius: 24,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  settingRow: {
+  preferenceItem: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 14,
+    padding: 16,
     borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
   },
-  settingInfo: {
+  preferenceContent: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-  settingText: {
-    fontSize: 15,
+  preferenceText: {
+    fontSize: 16,
+    color: COSMIC_THEME.paleMoonlight,
     marginLeft: 16,
   },
-  supportSection: {
-    margin: 16,
-    marginTop: 0,
-    borderRadius: 24,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  supportRow: {
+  // Dev button
+  devButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 14,
-    borderBottomWidth: 1,
-  },
-  supportIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(108, 99, 255, 0.1)',
     justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 16,
+    backgroundColor: 'rgba(10, 17, 40, 0.6)',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(100, 255, 218, 0.15)',
+    marginBottom: 16,
   },
-  supportText: {
-    fontSize: 15,
-    flex: 1,
+  devButtonText: {
+    fontSize: 16,
+    color: COSMIC_THEME.paleMoonlight,
+    marginLeft: 12,
   },
+  // Version info
   versionContainer: {
     alignItems: 'center',
-    marginTop: 16,
+    marginBottom: 20,
   },
   versionContent: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   versionText: {
-    fontSize: 12,
-    marginLeft: 6,
-  },
-  logoutContainer: {
-    margin: 16,
-    marginTop: 20,
-    marginBottom: 30,
-  },
-  logoutButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
-    borderRadius: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  logoutText: {
-    color: '#e74c3c',
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.5)',
     marginLeft: 8,
   },
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#000',
-  },
-  emailLoader: {
-    marginVertical: 8,
-  },
-  errorText: {
-    color: '#ff4444',
-    fontSize: 12,
-    marginTop: -8,
-    marginBottom: 8,
-    marginLeft: 4
+    backgroundColor: COSMIC_THEME.deeperNavy,
   },
 });
