@@ -63,6 +63,7 @@ const LoginScreen = () => {
   };
 
   const handleLogin = async () => {
+<<<<<<< Updated upstream
     setEmailError('');
     setPasswordError('');
     
@@ -70,6 +71,21 @@ const LoginScreen = () => {
       if (!email) setEmailError('Email is required');
       if (!password) setPasswordError('Password is required');
       showError('Please enter both email and password');
+>>>>>>> Stashed changes
+=======
+    // Reset error states
+    setEmailError('');
+    setPasswordError('');
+
+    // Validate email
+    if (!email) {
+      setEmailError('Email is required');
+      return;
+    }
+
+    // Validate password
+    if (!password) {
+      setPasswordError('Password is required');
 >>>>>>> Stashed changes
       return;
     }
@@ -115,8 +131,12 @@ const LoginScreen = () => {
         // Navigate to Home screen on successful login
 =======
       if (!existingUser) {
+<<<<<<< Updated upstream
         setEmailError('Email not found');
         showError('Account not found. Please sign up first.');
+=======
+        setEmailError('Email not found. Please sign up first.');
+>>>>>>> Stashed changes
         setLoading(false);
         return;
       }
@@ -149,14 +169,22 @@ const LoginScreen = () => {
 
       if (error) {
         console.error('Login error:', error);
+<<<<<<< Updated upstream
         setPasswordError('Incorrect password');
         showError('Incorrect password. Please try again.');
+=======
+        setPasswordError('Incorrect password. Please try again.');
+>>>>>>> Stashed changes
         setLoading(false);
         return;
       }
 
       if (!data?.user) {
+<<<<<<< Updated upstream
         showError('Login failed. Please try again.');
+>>>>>>> Stashed changes
+=======
+        setPasswordError('Login failed. Please try again.');
 >>>>>>> Stashed changes
         setLoading(false);
         return;
@@ -229,7 +257,11 @@ const LoginScreen = () => {
       );
 =======
       console.error('Login process error:', error);
+<<<<<<< Updated upstream
       showError('An error occurred during login. Please try again.');
+>>>>>>> Stashed changes
+=======
+      setPasswordError('An error occurred during login. Please try again.');
 >>>>>>> Stashed changes
     } finally {
       setLoading(false);
@@ -714,13 +746,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   inputError: {
-    borderColor: '#ff4444',
+    borderColor: '#ff3b30',
     borderWidth: 1,
   },
   errorText: {
-    color: '#ff4444',
+    color: '#ff3b30',
     fontSize: 12,
-    marginTop: 5,
+    marginTop: 4,
   },
   loginButton: {
     backgroundColor: '#fff',

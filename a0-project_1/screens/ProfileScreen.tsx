@@ -440,9 +440,20 @@ export default function ProfileScreen() {
         >
           <Ionicons name="arrow-back" size={24} color={theme.text} />
         </TouchableOpacity>
+<<<<<<< Updated upstream
         <Text style={[styles.headerTitle, { color: theme.text }]}>Profile</Text>
         <View style={styles.headerRight} />
       </Animated.View>
+=======
+        <Text style={styles.headerTitle}>Profile</Text>
+        <TouchableOpacity
+          style={styles.logoutButton}
+          onPress={() => navigation.navigate('LogoutScreen')}
+        >
+          <MaterialIcons name="logout" size={24} color={COSMIC_THEME.paleMoonlight} />
+        </TouchableOpacity>
+      </View>
+>>>>>>> Stashed changes
       
       <ScrollView
         style={styles.scrollView}

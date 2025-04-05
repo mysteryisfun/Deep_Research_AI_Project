@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   RefreshControl,
   ImageBackground,
   Platform,
+  Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -19,6 +20,28 @@ import { supabase } from '../context/supabase';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { MotiView } from 'moti';
+<<<<<<< Updated upstream
+=======
+import { LinearGradient } from 'expo-linear-gradient';
+import { AISearchService, SearchResult, SearchSuggestion } from '../services/aiSearchService';
+import { BlurView } from 'expo-blur';
+import { API_CONFIG, SEARCH_CONFIG } from '../config/api';
+
+// Define the cosmic theme palette
+const COSMIC_THEME = {
+  midnightNavy: '#0A1128',
+  deeperNavy: '#070E21',
+  glacialTeal: 'rgba(100, 255, 218, 0.7)',
+  burnishedGold: '#FFC107',
+  deepCoralGlow: 'rgba(255, 111, 97, 0.2)',
+  charcoalSmoke: '#2D3439',
+  paleMoonlight: '#E0E0E0',
+  cardBackground: 'rgba(45, 52, 57, 0.65)',
+  cardGlow: 'rgba(100, 255, 218, 0.1)',
+  accentGlow: 'rgba(255, 193, 7, 0.15)',
+  errorGlow: 'rgba(255, 111, 97, 0.5)',
+};
+>>>>>>> Stashed changes
 
 type RootStackParamList = {
   LoginScreen: undefined;
@@ -89,13 +112,26 @@ export default function FindStudyScreen() {
   const navigation = useNavigation<NavigationProp>();
   const { theme } = useTheme();
   const [searchQuery, setSearchQuery] = useState('');
+<<<<<<< Updated upstream
   const [selectedFilter, setSelectedFilter] = useState('All');
   const [publicResearch, setPublicResearch] = useState<PublicResearch[]>([]);
+=======
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
+>>>>>>> Stashed changes
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [searchResults, setSearchResults] = useState<PublicResearch[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const searchService = useRef(AISearchService.getInstance()).current;
+  const searchTimeout = useRef<NodeJS.Timeout>();
+  const suggestionsTimeout = useRef<NodeJS.Timeout>();
 
-  const performSemanticSearch = async (query: string) => {
+  // Initialize search service with API key
+  useEffect(() => {
+    searchService.setApiKey(API_CONFIG.MISTRAL_API_KEY);
+  }, []);
+
+  const performSearch = async (query: string) => {
     if (!query.trim()) {
       await fetchPublicResearch();
       return;
@@ -103,11 +139,33 @@ export default function FindStudyScreen() {
 
     try {
       setLoading(true);
+<<<<<<< Updated upstream
       // Split search terms and remove empty strings
       const searchTerms = query.toLowerCase()
         .split(' ')
         .filter(term => term.trim().length > 0);
+=======
+      const results = await searchService.search(query, {
+        limit: API_CONFIG.MAX_SEARCH_RESULTS,
+        minRelevance: API_CONFIG.MIN_RELEVANCE_SCORE,
+        useSemanticSearch: SEARCH_CONFIG.ENABLE_SEMANTIC_SEARCH
+      });
+      setSearchResults(results);
+    } catch (error) {
+      console.error('Error performing search:', error);
+      // Fallback to basic search if AI search fails
+      await performBasicSearch(query);
+    } finally {
+      setLoading(false);
+    }
+  };
+>>>>>>> Stashed changes
 
+  const performBasicSearch = async (query: string) => {
+    try {
+      setLoading(true);
+      const searchTerms = query.toLowerCase().split(' ');
+      
       // First, search in research_results_new
       const { data: resultsData, error: resultsError } = await supabase
         .from('research_results_new')
@@ -118,6 +176,7 @@ export default function FindStudyScreen() {
       // Enhanced search with relevance scoring
       const scoredResults = resultsData.map(item => {
         const content = item.result.toLowerCase();
+<<<<<<< Updated upstream
         let score = 0;
         let matchDetails = new Set<string>();
 
@@ -172,6 +231,9 @@ export default function FindStudyScreen() {
           score,
           matchDetails: Array.from(matchDetails),
         };
+=======
+        return searchTerms.some(term => content.includes(term));
+>>>>>>> Stashed changes
       });
 
       // Filter and sort results by score
@@ -208,15 +270,20 @@ export default function FindStudyScreen() {
           query: item.query,
           result: highlightedPreview,
           created_at: item.created_at,
+<<<<<<< Updated upstream
           relevance_score: matchResult?.score || 0,
           match_details: matchResult?.matchDetails || []
+=======
+          relevance_score: 1,
+          semantic_similarity: 1
+>>>>>>> Stashed changes
         };
       }).sort((a, b) => b.relevance_score - a.relevance_score);
 
-      setPublicResearch(transformedData);
       setSearchResults(transformedData);
     } catch (error) {
-      console.error('Error performing semantic search:', error);
+      console.error('Error performing basic search:', error);
+      setSearchResults([]);
     } finally {
       setLoading(false);
     }
@@ -257,10 +324,11 @@ export default function FindStudyScreen() {
           query: item.query,
           result: result?.result || 'Click to view full research',
           created_at: item.created_at,
+          relevance_score: 1,
+          semantic_similarity: 1
         };
       });
 
-      setPublicResearch(transformedData);
       setSearchResults(transformedData);
     } catch (error) {
       console.error('Error fetching public research:', error);
@@ -270,17 +338,45 @@ export default function FindStudyScreen() {
     }
   };
 
-  useEffect(() => {
-    fetchPublicResearch();
-  }, []);
-
   // Update search when query changes
   useEffect(() => {
-    const debounceTimer = setTimeout(() => {
-      performSemanticSearch(searchQuery);
-    }, 300); // Debounce for 300ms
+    if (searchTimeout.current) {
+      clearTimeout(searchTimeout.current);
+    }
 
-    return () => clearTimeout(debounceTimer);
+    searchTimeout.current = setTimeout(() => {
+      performSearch(searchQuery);
+    }, API_CONFIG.SEARCH_DEBOUNCE_DELAY);
+
+    return () => {
+      if (searchTimeout.current) {
+        clearTimeout(searchTimeout.current);
+      }
+    };
+  }, [searchQuery]);
+
+  // Update suggestions when query changes
+  useEffect(() => {
+    if (suggestionsTimeout.current) {
+      clearTimeout(suggestionsTimeout.current);
+    }
+
+    if (searchQuery.trim() && SEARCH_CONFIG.ENABLE_SUGGESTIONS) {
+      suggestionsTimeout.current = setTimeout(async () => {
+        const newSuggestions = await searchService.getSearchSuggestions(searchQuery);
+        setSuggestions(newSuggestions);
+        setShowSuggestions(true);
+      }, API_CONFIG.SUGGESTIONS_DEBOUNCE_DELAY);
+    } else {
+      setSuggestions([]);
+      setShowSuggestions(false);
+    }
+
+    return () => {
+      if (suggestionsTimeout.current) {
+        clearTimeout(suggestionsTimeout.current);
+      }
+    };
   }, [searchQuery]);
 
   const onRefresh = () => {
@@ -288,11 +384,34 @@ export default function FindStudyScreen() {
     fetchPublicResearch();
   };
 
-  const renderResearchItem = ({ item }: { item: PublicResearch }) => (
+  const renderSearchSuggestion = ({ item }: { item: SearchSuggestion }) => (
+    <TouchableOpacity
+      style={styles.suggestionItem}
+      onPress={() => {
+        setSearchQuery(item.text);
+        setShowSuggestions(false);
+      }}
+    >
+      <MaterialIcons
+        name={item.type === 'query' ? 'history' : 'topic'}
+        size={20}
+        color={COSMIC_THEME.glacialTeal}
+        style={styles.suggestionIcon}
+      />
+      <Text style={styles.suggestionText}>{item.text}</Text>
+    </TouchableOpacity>
+  );
+
+  const renderResearchItem = ({ item }: { item: SearchResult }) => (
     <MotiView
+<<<<<<< Updated upstream
       from={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ delay: 100 }}
+=======
+      from={{ opacity: 0, translateY: 20 }}
+      animate={{ opacity: 1, translateY: 0 }}
+>>>>>>> Stashed changes
     >
       <TouchableOpacity
         style={[styles.researchCard, { backgroundColor: theme.card }]}
@@ -311,8 +430,13 @@ export default function FindStudyScreen() {
         </Text>
         <View style={styles.researchFooter}>
           <View style={styles.relevanceContainer}>
+<<<<<<< Updated upstream
             <Text style={[styles.relevanceScore, { color: theme.accent }]}>
               Relevance: {Math.round((item.relevance_score || 0) * 10) / 10}
+=======
+            <Text style={styles.relevanceText}>
+              Relevance: {Math.round((item.relevance_score + item.semantic_similarity) * 50)}%
+>>>>>>> Stashed changes
             </Text>
           </View>
           <TouchableOpacity 
@@ -327,6 +451,7 @@ export default function FindStudyScreen() {
   );
 
   return (
+<<<<<<< Updated upstream
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
       <StatusBar style={theme.statusBar === 'light' ? 'light' : 'dark'} />
       <ImageBackground
@@ -377,6 +502,55 @@ export default function FindStudyScreen() {
           </View>
         </View>
       </ImageBackground>
+=======
+    <SafeAreaView style={[styles.container, { backgroundColor: COSMIC_THEME.midnightNavy }]}>
+      <StatusBar style="light" />
+      
+      <LinearGradient 
+        colors={[COSMIC_THEME.deeperNavy, COSMIC_THEME.midnightNavy]} 
+        style={StyleSheet.absoluteFillObject}
+      />
+      
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+        >
+          <Ionicons name="arrow-back" size={24} color={COSMIC_THEME.paleMoonlight} />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Find Research</Text>
+        <View style={styles.placeholder} />
+      </View>
+      
+      {/* Search Bar */}
+      <View style={styles.searchContainer}>
+        <MaterialIcons name="search" size={24} color={COSMIC_THEME.glacialTeal} style={styles.searchIcon} />
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search research papers..."
+          placeholderTextColor="rgba(224, 224, 224, 0.5)"
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          onFocus={() => setShowSuggestions(true)}
+          selectionColor={COSMIC_THEME.glacialTeal}
+          returnKeyType="search"
+        />
+      </View>
+
+      {/* Search Suggestions */}
+      {showSuggestions && suggestions.length > 0 && (
+        <BlurView intensity={20} style={styles.suggestionsContainer}>
+          <FlatList
+            data={suggestions}
+            renderItem={renderSearchSuggestion}
+            keyExtractor={(item, index) => `${item.text}-${index}`}
+            style={styles.suggestionsList}
+          />
+        </BlurView>
+      )}
+
+>>>>>>> Stashed changes
       <Text style={styles.sectionTitle}>Recent Publications</Text>
       {loading ? (
         <View style={styles.loadingContainer}>
@@ -551,5 +725,40 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: 'center',
     marginTop: 16,
+  },
+  suggestionsContainer: {
+    position: 'absolute',
+    top: 120,
+    left: 16,
+    right: 16,
+    maxHeight: 200,
+    borderRadius: 12,
+    overflow: 'hidden',
+    zIndex: 1000,
+  },
+  suggestionsList: {
+    maxHeight: 200,
+  },
+  suggestionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(100, 255, 218, 0.1)',
+  },
+  suggestionIcon: {
+    marginRight: 8,
+  },
+  suggestionText: {
+    color: COSMIC_THEME.paleMoonlight,
+    fontSize: 14,
+  },
+  relevanceContainer: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  relevanceText: {
+    color: COSMIC_THEME.glacialTeal,
+    fontSize: 12,
   },
 });

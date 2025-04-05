@@ -15,9 +15,12 @@ import { MotiView } from 'moti';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { toast } from 'sonner-native';
+import { logoutAndClearCache } from '../utils/profileService';
+import { useUser } from '../context/UserContext';
 
 export default function LogoutScreen() {
   const navigation = useNavigation();
+  const { setUserId } = useUser();
   const scaleAnim = React.useRef(new Animated.Value(0.9)).current;
   const opacityAnim = React.useRef(new Animated.Value(0)).current;
 
@@ -64,25 +67,46 @@ export default function LogoutScreen() {
     return true;
   };
 
-  const handleLogout = () => {
-    toast.info('Logging out...');
-    
-    // Animate out
-    Animated.parallel([
-      Animated.timing(scaleAnim, {
-        toValue: 0.9,
-        duration: 150,
-        useNativeDriver: true,
-      }),
-      Animated.timing(opacityAnim, {
-        toValue: 0,
-        duration: 150,
-        useNativeDriver: true,
-      })
-    ]).start(() => {
-      // Navigate to Login screen
-      navigation.navigate('Login');
-    });
+  const handleLogout = async () => {
+    try {
+      toast.info('Logging out...');
+      
+      // Use the profileService to handle logout and cache clearing
+      const success = await logoutAndClearCache();
+      
+      if (!success) {
+        throw new Error('Failed to sign out');
+      }
+      
+      // Also clear the user ID from context if needed
+      if (setUserId) {
+        setUserId(null);
+      }
+      
+      // Animate out
+      Animated.parallel([
+        Animated.timing(scaleAnim, {
+          toValue: 0.9,
+          duration: 150,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacityAnim, {
+          toValue: 0,
+          duration: 150,
+          useNativeDriver: true,
+        })
+      ]).start(() => {
+        toast.success('Signed out successfully');
+        // Navigate to Landing screen
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Landing' }],
+        });
+      });
+    } catch (error) {
+      console.error('Error logging out:', error);
+      toast.error('Failed to sign out. Please try again.');
+    }
   };
 
   return (
