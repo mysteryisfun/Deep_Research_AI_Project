@@ -32,6 +32,13 @@ function loadEnvFile() {
           
           // Remove quotes if present
           env[key] = value.replace(/^["'](.*)["']$/, '$1');
+          
+          // Log which keys were found (without showing full values for sensitive data)
+          if (key.includes('KEY') || key.includes('SECRET') || key.includes('TOKEN')) {
+            console.log(`Found ${key}: (value hidden for security)`);
+          } else {
+            console.log(`Found ${key}: ${value.substring(0, 20)}${value.length > 20 ? '...' : ''}`);
+          }
         }
       });
       
@@ -46,6 +53,12 @@ function loadEnvFile() {
 // Load environment variables
 const env = loadEnvFile();
 
+// Check if essential env vars are available
+console.log('Environment Variables Status:');
+console.log(`SUPABASE_URL: ${env.SUPABASE_URL ? 'Found in env file' : 'Not found in env file'}`);
+console.log(`SUPABASE_ANON_KEY: ${env.SUPABASE_ANON_KEY ? 'Found in env file' : 'Not found in env file'}`);
+console.log(`N8N_WEBHOOK_URL: ${env.N8N_WEBHOOK_URL ? 'Found in env file' : 'Not found in env file'}`);
+
 // Export the Expo configuration
 module.exports = {
   name: "Royal Research",
@@ -54,7 +67,7 @@ module.exports = {
   ...require('./app.json').expo,
   // Override with env variables or use defaults
   extra: {
-    SUPABASE_URL: env.SUPABASE_URL || process.env.SUPABASE_URL || 'https://wurrqztgdnecgtmsisrq.supabase.co',
+    SUPABASE_URL: env.SUPABASE_URL || process.env.SUPABASE_URL,
     SUPABASE_ANON_KEY: env.SUPABASE_ANON_KEY || process.env.SUPABASE_ANON_KEY,
     N8N_WEBHOOK_URL: env.N8N_WEBHOOK_URL || process.env.N8N_WEBHOOK_URL,
     eas: {

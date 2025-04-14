@@ -1,5 +1,6 @@
 import { storeResearchHistory, generateResearchId } from '../../utils/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import config from '../../utils/config';
 
 export interface ResearchQueryParams {
   user_id: string;
@@ -52,7 +53,11 @@ export async function sendResearchQuery(params: ResearchQueryParams): Promise<Re
     
     // 1. FIRST send the data to the webhook (primary system of record)
     console.log('Sending data to webhook...');
-    const webhookUrl = 'https://atomic123.app.n8n.cloud/webhook-test/055cedaa-a313-4625-a41c-7e7f9560b7a3';
+    const webhookUrl = config.N8N_WEBHOOK_URL;
+    
+    if (!webhookUrl) {
+      throw new Error('Webhook URL is not configured. Please check your environment variables.');
+    }
     
     const response = await fetch(webhookUrl, {
       method: 'POST',

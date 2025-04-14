@@ -12,10 +12,14 @@ interface EnvVariables {
 function getEnvironmentVariable(name: keyof EnvVariables): string | undefined {
   // Try to get from Expo Constants first (app.config.js or app.json extra)
   const expoConstant = Constants.expoConfig?.extra?.[name];
-  if (expoConstant) return expoConstant as string;
+  if (expoConstant) {
+    console.log(`[CONFIG] Found ${name} in Expo Constants`);
+    return expoConstant as string;
+  }
 
   // Try to get from process.env (for Expo dev client and bare workflow)
   if (process.env[`EXPO_PUBLIC_${name}`]) {
+    console.log(`[CONFIG] Found ${name} in process.env with EXPO_PUBLIC_ prefix`);
     return process.env[`EXPO_PUBLIC_${name}`] as string;
   }
 
@@ -24,12 +28,14 @@ function getEnvironmentVariable(name: keyof EnvVariables): string | undefined {
     // Only attempt to import if we need to
     const envModule = require('@env');
     if (envModule && envModule[name]) {
+      console.log(`[CONFIG] Found ${name} in @env module`);
       return envModule[name];
     }
   } catch (error) {
     // Silently fail if @env is not available or doesn't contain the variable
   }
 
+  console.log(`[CONFIG] Could not find ${name} in any environment source`);
   // Return undefined if not found
   return undefined;
 }
@@ -39,7 +45,7 @@ const config = {
   get SUPABASE_URL(): string {
     const url = getEnvironmentVariable('SUPABASE_URL');
     if (!url) {
-      console.warn('Missing SUPABASE_URL environment variable');
+      console.error('SUPABASE_URL environment variable is missing. Authentication and data functionality will not work.');
       return ''; // Return empty string to prevent undefined errors
     }
     return url;
@@ -48,7 +54,7 @@ const config = {
   get SUPABASE_ANON_KEY(): string {
     const key = getEnvironmentVariable('SUPABASE_ANON_KEY');
     if (!key) {
-      console.warn('Missing SUPABASE_ANON_KEY environment variable');
+      console.error('SUPABASE_ANON_KEY environment variable is missing. Authentication and data functionality will not work.');
       return ''; // Return empty string to prevent undefined errors
     }
     return key;
@@ -57,8 +63,7 @@ const config = {
   get N8N_WEBHOOK_URL(): string {
     const url = getEnvironmentVariable('N8N_WEBHOOK_URL');
     if (!url) {
-      // This is a soft warning as webhook may be optional
-      console.log('N8N_WEBHOOK_URL environment variable not defined');
+      console.error('N8N_WEBHOOK_URL environment variable is missing. Research submission functionality will not work.');
       return ''; // Return empty string to prevent undefined errors
     }
     return url;
@@ -66,18 +71,40 @@ const config = {
 
   // Helper method to check if all required variables are set
   isConfigValid(): boolean {
-    return Boolean(this.SUPABASE_URL && this.SUPABASE_ANON_KEY);
+    const isSupabaseConfigValid = Boolean(this.SUPABASE_URL && this.SUPABASE_ANON_KEY);
+    const isWebhookConfigValid = Boolean(this.N8N_WEBHOOK_URL);
+    
+    if (!isSupabaseConfigValid) {
+      console.error('Supabase configuration is incomplete. Please check SUPABASE_URL and SUPABASE_ANON_KEY environment variables.');
+    }
+    
+    if (!isWebhookConfigValid) {
+      console.error('Webhook configuration is missing. Research submission will not work.');
+    }
+    
+    return isSupabaseConfigValid;
   },
 
   // Debug method to log config status (without revealing sensitive values)
   logConfigStatus(): void {
-    if (__DEV__) {
-      console.log('Environment Configuration Status:');
-      console.log(`- SUPABASE_URL: ${this.SUPABASE_URL ? '✓ Set' : '✗ Missing'}`);
-      console.log(`- SUPABASE_ANON_KEY: ${this.SUPABASE_ANON_KEY ? '✓ Set' : '✗ Missing'}`);
-      console.log(`- N8N_WEBHOOK_URL: ${this.N8N_WEBHOOK_URL ? '✓ Set' : '✕ Not set (optional)'}`);
-      console.log(`- Platform: ${Platform.OS}`);
-      console.log(`- Dev Mode: ${__DEV__ ? 'Yes' : 'No'}`);
+    console.log('Environment Configuration Status:');
+    console.log(`- SUPABASE_URL: ${this.SUPABASE_URL ? '✓ Set' : '✗ Missing'}`);
+    console.log(`- SUPABASE_ANON_KEY: ${this.SUPABASE_ANON_KEY ? '✓ Set' : '✗ Missing'}`);
+    console.log(`- N8N_WEBHOOK_URL: ${this.N8N_WEBHOOK_URL ? '✓ Set' : '✕ Not set (optional)'}`);
+    console.log(`- Platform: ${Platform.OS}`);
+    console.log(`- Dev Mode: ${__DEV__ ? 'Yes' : 'No'}`);
+    
+    // Check if extra exists in Constants
+    console.log('\nExpo Constants Structure:');
+    console.log(`- Constants.expoConfig: ${Constants.expoConfig ? '✓ Exists' : '✗ Missing'}`);
+    console.log(`- Constants.expoConfig.extra: ${Constants.expoConfig?.extra ? '✓ Exists' : '✗ Missing'}`);
+    
+    // Log all available keys in extra (if it exists)
+    if (Constants.expoConfig?.extra) {
+      console.log('\nAvailable keys in Constants.expoConfig.extra:');
+      Object.keys(Constants.expoConfig.extra).forEach(key => {
+        console.log(`- ${key}: ${Constants.expoConfig?.extra?.[key] ? '✓ Has value' : '✗ No value'}`);
+      });
     }
   }
 };
