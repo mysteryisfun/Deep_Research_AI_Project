@@ -32,8 +32,8 @@ const COSMIC_THEME = {
 };
 
 const { width, height } = Dimensions.get('window');
-const isSmallScreen = width < 380;
-const cardWidth = Math.min((width - (isSmallScreen ? 40 : 60)) / 2, 180); // Limit max width and adjust spacing for small screens
+const isSmallScreen = width < 768;
+const cardWidth = isSmallScreen ? '90%' : '45%'; // More responsive width
 
 // Create a GlassMorphicCard component for consistent styling
 const GlassMorphicCard = ({ 
@@ -149,11 +149,26 @@ $ · · $ $ · · ·`
   },
 ];
 
-const AgentCard = ({ agent, index }) => {
+interface Agent {
+  id: string;
+  name: string;
+  specialty: string;
+  description: string;
+  gradient: string[];
+  icon: string;
+  asciiPattern: string;
+}
+
+interface AgentCardProps {
+  agent: Agent;
+  index: number;
+}
+
+const AgentCard: React.FC<AgentCardProps> = ({ agent, index }) => {
   const navigation = useNavigation();
   
-  const getScreenNameForAgent = (specialty) => {
-    const screenMap = {
+  const getScreenNameForAgent = (specialty: string): string => {
+    const screenMap: Record<string, string> = {
       'General Research': 'GeneralAgentScreen',
       'Business Research': 'BusinessAgentScreen',
       'Health & Biology': 'HealthAgentScreen',
@@ -167,12 +182,12 @@ const AgentCard = ({ agent, index }) => {
     <MotiView
       from={{ opacity: 0, translateY: 20 }}
       animate={{ opacity: 1, translateY: 0 }}
-      transition={{ 
-        type: 'timing', 
+      transition={{
+        type: 'timing',
         duration: 600,
-        delay: index * 150
-      }}
-      style={[styles.agentCardContainer, { width: cardWidth }]}
+        delay: index * 150,
+      } as any}
+      style={[styles.agentCardContainer]}
     >
       <GlassMorphicCard style={styles.agentCard} glowColor={agent.gradient[0]}>
         <LinearGradient
@@ -200,25 +215,25 @@ const AgentCard = ({ agent, index }) => {
               <TouchableOpacity 
                 style={styles.readMoreButton}
                 onPress={() => navigation.navigate(getScreenNameForAgent(agent.specialty))}
-        >
+              >
                 <Text style={styles.readMoreButtonText}>Read More</Text>
               </TouchableOpacity>
               
               <TouchableOpacity 
                 style={styles.researchButton}
                 onPress={() => navigation.navigate('ResearchParametersScreen', { agent })}
-          >
-          <LinearGradient
+              >
+                <LinearGradient
                   colors={['rgba(100, 255, 218, 0.8)', 'rgba(59, 130, 246, 0.8)']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
                   style={styles.researchButtonGradient}
-          >
+                >
                   <Text style={styles.researchButtonText}>Research</Text>
-          </LinearGradient>
-        </TouchableOpacity>
-        </View>
-      </View>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          </View>
         </LinearGradient>
       </GlassMorphicCard>
     </MotiView>
@@ -264,11 +279,13 @@ export default function AgentListScreen() {
           numColumns={2}
           columnWrapperStyle={styles.row}
           contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          showsHorizontalScrollIndicator={false}
           renderItem={({ item, index }) => (
             <AgentCard agent={item} index={index} />
           )}
         />
-          </View>
+      </View>
     </SafeAreaView>
   );
 }
@@ -282,19 +299,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingTop: 8,
-    paddingBottom: 8,
-    paddingHorizontal: 20,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(100, 255, 218, 0.1)',
+    backgroundColor: 'rgba(10, 17, 40, 0.8)',
   },
   backButton: {
-    borderRadius: 30,
+    borderRadius: 12,
     overflow: 'hidden',
   },
   backButtonGradient: {
-    padding: 8,
-    borderRadius: 30, 
+    padding: 12,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(100, 255, 218, 0.15)',
   },
@@ -303,39 +320,43 @@ const styles = StyleSheet.create({
   },
   centerContent: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingTop: 24,
   },
   listContent: {
-    padding: isSmallScreen ? 10 : 20,
-    paddingBottom: 20,
+    paddingVertical: 16,
   },
   row: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'center',
-    marginBottom: 16,
-    gap: isSmallScreen ? 10 : 20,
+    gap: 24,
+    paddingHorizontal: isSmallScreen ? 16 : 24,
   },
   agentCardContainer: {
-    height: isSmallScreen ? 220 : 240, // Reduced height for better fit
+    width: cardWidth,
+    minHeight: 280,
+    marginBottom: 24,
   },
   agentCard: {
     flex: 1,
     borderRadius: 16,
     overflow: 'hidden',
-    shadowColor: COSMIC_THEME.glacialTeal,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 8,
+    backgroundColor: 'rgba(10, 17, 40, 0.6)',
+    borderWidth: 1,
+    borderColor: 'rgba(100, 255, 218, 0.1)',
   },
   cardGradient: {
     flex: 1,
-    padding: 0,
+    padding: 20,
   },
   cardPattern: {
-    ...StyleSheet.absoluteFillObject,
-    padding: 10,
-    opacity: 0.1,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    opacity: 0.05,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -348,43 +369,39 @@ const styles = StyleSheet.create({
   },
   cardContent: {
     flex: 1,
-    padding: isSmallScreen ? 12 : 16,
     justifyContent: 'space-between',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    backgroundColor: 'rgba(0, 0, 0, 0.2)',
   },
   iconContainer: {
-    width: isSmallScreen ? 44 : 50,
-    height: isSmallScreen ? 44 : 50,
-    borderRadius: isSmallScreen ? 22 : 25,
-    backgroundColor: 'rgba(10, 17, 40, 0.6)',
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: 'rgba(10, 17, 40, 0.8)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: isSmallScreen ? 8 : 12,
+    marginBottom: 16,
     borderWidth: 1,
     borderColor: 'rgba(100, 255, 218, 0.2)',
   },
   agentName: {
-    fontSize: isSmallScreen ? 14 : 16,
+    fontSize: 20,
     fontWeight: '700',
     color: COSMIC_THEME.paleMoonlight,
-    marginBottom: 6,
+    marginBottom: 12,
   },
   agentDescription: {
-    fontSize: isSmallScreen ? 11 : 12,
+    fontSize: 14,
     color: 'rgba(255, 255, 255, 0.8)',
-    lineHeight: isSmallScreen ? 14 : 16,
-    marginBottom: isSmallScreen ? 12 : 16,
+    lineHeight: 20,
+    marginBottom: 24,
   },
   agentActions: {
-    gap: 6,
+    gap: 12,
   },
   readMoreButton: {
     backgroundColor: 'rgba(100, 255, 218, 0.1)',
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: 'rgba(100, 255, 218, 0.2)',
@@ -392,21 +409,21 @@ const styles = StyleSheet.create({
   readMoreButtonText: {
     color: COSMIC_THEME.paleMoonlight,
     fontWeight: '600',
-    fontSize: isSmallScreen ? 12 : 13,
+    fontSize: 14,
   },
   researchButton: {
-    borderRadius: 8,
+    borderRadius: 12,
     overflow: 'hidden',
   },
   researchButtonGradient: {
-    paddingVertical: 6,
-    paddingHorizontal: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
   researchButtonText: {
     color: COSMIC_THEME.midnightNavy,
     fontWeight: '600',
-    fontSize: isSmallScreen ? 12 : 13,
+    fontSize: 14,
   },
 });
