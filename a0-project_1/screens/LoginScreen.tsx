@@ -166,20 +166,29 @@ const LoginScreen = () => {
     }
   };
 
-  const handleForgotPassword = () => {
-    // Simulate sending a reset password link
+  const handleForgotPassword = async () => {
     if (resetEmail.trim() === '') {
-      Alert.alert('Error', 'Please enter your email address.');
+      toast.error('Please enter your email address.');
       return;
     }
 
-    // Simulate API call to send reset password link
-    Alert.alert(
-      'Reset Password',
-      `A reset password link has been sent to ${resetEmail}.`
-    );
-    setModalVisible(false);
-    setResetEmail('');
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(resetEmail.trim(), {
+        redirectTo: 'yourapp://reset-password',
+      });
+
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+
+      toast.success('Password reset link has been sent to your email.');
+      setModalVisible(false);
+      setResetEmail('');
+    } catch (error: any) {
+      console.error('Password reset error:', error);
+      toast.error('Failed to send reset password link. Please try again.');
+    }
   };
 
   const handleSignUp = async () => {
@@ -462,18 +471,22 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000',
     padding: 20,
+    alignItems: 'center',
   },
   backButton: {
+    alignSelf: 'flex-start',
     marginBottom: 20,
   },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
     color: '#fff',
-    marginBottom: 20,
+    marginBottom: 30,
   },
   inputContainer: {
     marginBottom: 20,
+    width: '80%',
+    maxWidth: 400,
   },
   label: {
     fontSize: 14,
@@ -502,6 +515,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     marginBottom: 15,
+    width: '80%',
+    maxWidth: 400,
   },
   loginButtonText: {
     color: '#000',
@@ -532,6 +547,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 10,
     justifyContent: 'center',
+    width: '80%',
+    maxWidth: 400,
   },
   socialButtonText: {
     color: '#fff',
@@ -555,7 +572,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
   },
   modalContent: {
-    width: '90%',
+    width: '80%',
+    maxWidth: 400,
     backgroundColor: '#1c1c1e',
     borderRadius: 8,
     padding: 20,

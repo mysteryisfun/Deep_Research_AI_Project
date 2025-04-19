@@ -1,16 +1,20 @@
 import 'react-native-url-polyfill/auto';
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import config from './config';
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from '@env';
+
+const supabaseUrl = SUPABASE_URL;
+const supabaseAnonKey = SUPABASE_ANON_KEY;
 
 // Validate that required environment variables are available
-if (!config.isConfigValid()) {
+if (!supabaseUrl || !supabaseAnonKey) {
   console.error('Missing Supabase configuration. Please check your environment variables.');
 }
 
 // Log config status in development mode
 if (__DEV__) {
-  config.logConfigStatus();
+  console.log('Supabase URL:', supabaseUrl);
+  console.log('Supabase Anon Key:', supabaseAnonKey);
 }
 
 // Update the interface to specify research_id as a string
@@ -29,7 +33,7 @@ export interface ResearchData {
 }
 
 // Create a Supabase client
-export const supabase = createClient(config.SUPABASE_URL, config.SUPABASE_ANON_KEY, {
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     storage: AsyncStorage,
     autoRefreshToken: true,
@@ -265,5 +269,41 @@ export async function storeResearchResult(resultData: {
 export function generateEntityId(type: 'question' | 'progress' | 'result' | 'question-batch' | 'user'): string {
   return `${type}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 }
+
+// Helper function to check if user is authenticated
+export const isAuthenticated = async () => {
+  try {
+    const { data: { session }, error } = await supabase.auth.getSession();
+    if (error) throw error;
+    return !!session;
+  } catch (error) {
+    console.error('Error checking auth status:', error);
+    return false;
+  }
+};
+
+// Helper function to get current user
+export const getCurrentUser = async () => {
+  try {
+    const { data: { user }, error } = await supabase.auth.getUser();
+    if (error) throw error;
+    return user;
+  } catch (error) {
+    console.error('Error getting current user:', error);
+    return null;
+  }
+};
+
+// Helper function to sign out
+export const signOut = async () => {
+  try {
+    const { error } = await supabase.auth.signOut();
+    if (error) throw error;
+    return true;
+  } catch (error) {
+    console.error('Error signing out:', error);
+    return false;
+  }
+};
 
 export default supabase; 

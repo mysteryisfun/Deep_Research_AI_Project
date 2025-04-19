@@ -222,18 +222,22 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000',
     padding: 20,
+    alignItems: 'center',
   },
   backButton: {
+    alignSelf: 'flex-start',
     marginBottom: 20,
   },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
     color: '#fff',
-    marginBottom: 20,
+    marginBottom: 30,
   },
   inputContainer: {
     marginBottom: 20,
+    width: '80%',
+    maxWidth: 400,
   },
   label: {
     fontSize: 14,
@@ -262,6 +266,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     marginBottom: 15,
+    width: '80%',
+    maxWidth: 400,
   },
   signupButtonText: {
     color: '#000',
@@ -284,6 +290,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 10,
     justifyContent: 'center',
+    width: '80%',
+    maxWidth: 400,
   },
   socialButtonText: {
     color: '#fff',
