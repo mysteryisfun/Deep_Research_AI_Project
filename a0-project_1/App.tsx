@@ -7,6 +7,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import HomeScreen from "./screens/HomeScreen";
 import LoginScreen from "./screens/LoginScreen";
 import LandingScreen from "./screens/LandingScreen";
+import LandingScreen_1 from "./screens/LandingScreen_1";
 import DashboardScreen from "./screens/DashboardScreen";
 import ChooseAgentScreen from "./screens/ChooseAgentScreen";
 import HistoryScreen from "./screens/HistoryScreen";
@@ -68,6 +69,7 @@ function RootStack({ initialRouteName }: { initialRouteName: string }) {
       }}
     >
       <Stack.Screen name="Landing" component={LandingScreen} />
+      <Stack.Screen name="LandingScreen_1" component={LandingScreen_1} />
       <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="Signup" component={SignupScreen} />
       <Stack.Screen name="Home" component={HomeScreen} />

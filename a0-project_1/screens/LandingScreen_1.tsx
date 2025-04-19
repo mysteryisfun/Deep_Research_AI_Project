@@ -1,13 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, Dimensions, StatusBar, Platform, ScrollView, ActivityIndicator, Animated, Easing, Switch, TextInput } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, Dimensions, StatusBar, Platform, ScrollView, ActivityIndicator, Animated, Easing, TextInput, KeyboardAvoidingView, Modal } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Slider from '@react-native-community/slider';
 import axios from 'axios';
-
-// Import environment variables
-import Constants from 'expo-constants';
+import { MotiView } from 'moti';
+import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import { toast } from 'sonner-native';
+import { generateUserId } from '../utils/supabase';
+import { useUser } from '../context/UserContext';
 
 // Import Three.js dependencies with error handling
 let THREE: any = null;
@@ -212,15 +213,8 @@ const THEME_COLORS = {
 
 const { width, height } = Dimensions.get('window');
 
-// Define the question type
-interface ResearchQuestion {
-  id: string;
-  text: string;
-  answered: boolean;
-}
-
-// Get webhook URL from environment variables
-const LANDING_PAGE_WEBHOOK_URL = Constants.expoConfig?.extra?.LANDING_PAGE_WEBHOOK_URL || 'https://maga82834.app.n8n.cloud/webhook-test/353f9cc0-85ba-4afc-b9aa-cff00a0f4a4e';
+// n8n webhook URL - for our enhanced landing screen
+const WEBHOOK_URL = 'https://maga82834.app.n8n.cloud/webhook-test/38f01e92-c408-4589-a595-a366d31247aa';
 
 export default function LandingScreen() {
   const navigation = useNavigation<any>();
@@ -228,33 +222,178 @@ export default function LandingScreen() {
   const sceneRef = useRef<any>(null);
   const scrollY = useRef(0);
   const targetScrollY = useRef(0);
-  const animationFrameId = useRef(null);
+  const animationFrameId = useRef<number | null>(null);
   const nodesRef = useRef<any[]>([]);
   const connectionsRef = useRef<any[]>([]);
   const packetsRef = useRef<any[]>([]);
   const textObjectsRef = useRef<any[]>([]);
-  const pulseTimerRef = useRef(null);
+  const pulseTimerRef = useRef<NodeJS.Timeout | null>(null);
   
   // State for the scrollable content
-  const [contentOpacity, setContentOpacity] = useState(0);
-  const [layoutCalculated, setLayoutCalculated] = useState(false);
+  const [showContent, setShowContent] = useState(true);
+  const [isGlViewReady, setIsGlViewReady] = useState(false);
+  const [is3DInitialized, setIs3DInitialized] = useState(false);
+  const [is3DEnabled, setIs3DEnabled] = useState(is3DAvailable);
+  const [isLoading, setIsLoading] = useState(false);
   const [debugMessage, setDebugMessage] = useState('');
-  const [is3DWorking, setIs3DWorking] = useState(is3DAvailable);
-  const [isLoading, setIsLoading] = useState(true);
-
-  // Research parameters state
-  const [researchBreadth, setResearchBreadth] = useState(3);
-  const [researchDepth, setResearchDepth] = useState(3);
-  const [includeTechnicalTerms, setIncludeTechnicalTerms] = useState(false);
-  const [outputFormat, setOutputFormat] = useState('Research Paper');
-  const [researchQuery, setResearchQuery] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [questions, setQuestions] = useState<ResearchQuestion[]>([]);
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const [showQuestions, setShowQuestions] = useState(false);
-
-  // Add for pulse animation
+  const [layoutCalculated, setLayoutCalculated] = useState(false);
+  
+  // Animation values
+  const contentOpacity = useRef(new Animated.Value(0)).current;
   const pulseAnimatedValue = useRef(new Animated.Value(0)).current;
+  
+  // Research parameters state
+  const [query, setQuery] = useState('');
+  const [breadth, setBreadth] = useState(3);
+  const [depth, setDepth] = useState(3);
+  const [includeTechnicalTerms, setIncludeTechnicalTerms] = useState(false);
+  const [outputType, setOutputType] = useState('Research Paper');
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [showResearchModal, setShowResearchModal] = useState(false);
+  
+  // Questions handling state
+  const [questions, setQuestions] = useState<{ id: string; question: string; answer: string }[]>([]);
+  const [receivedQuestions, setReceivedQuestions] = useState(false);
+  const [showQuestionsModal, setShowQuestionsModal] = useState(false);
+  
+  // Animation values
+  const [breadthAnimValue] = useState(new Animated.Value(3));
+  const [depthAnimValue] = useState(new Animated.Value(3));
+  
+  // Get user context
+  const { userId } = useUser();
+  
+  // Update animation values when sliders change
+  useEffect(() => {
+    Animated.timing(breadthAnimValue, {
+      toValue: breadth,
+      duration: 300,
+      easing: Easing.out(Easing.ease),
+      useNativeDriver: false,
+    }).start();
+  }, [breadth]);
+  
+  useEffect(() => {
+    Animated.timing(depthAnimValue, {
+      toValue: depth,
+      duration: 300,
+      easing: Easing.out(Easing.ease),
+      useNativeDriver: false,
+    }).start();
+  }, [depth]);
+  
+  const outputOptions = ['Research Paper', 'Blog', 'Essay', 'Case Study'];
+
+  // Handle research submission
+  const handleSubmitResearch = async () => {
+    setIsLoading(true);
+    
+    try {
+      // Use the global userId if available, otherwise fall back to generating one
+      const userIdToUse = userId || await generateUserId();
+      
+      // Prepare the payload for the API call
+      const payload = {
+        user_id: userIdToUse,
+        agent: 'general',
+        query,
+        breadth,
+        depth,
+        include_technical_terms: includeTechnicalTerms,
+        output_format: outputType
+      };
+      
+      console.log('Sending research query with payload:', payload);
+      
+      // Send to webhook
+      const response = await axios.post(WEBHOOK_URL, payload, {
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (response.status === 200) {
+        console.log('Research query successful!', response.data);
+        
+        // Check if the response contains questions
+        if (response.data && Array.isArray(response.data.questions)) {
+          const formattedQuestions = response.data.questions.map((q: string, index: number) => ({
+            id: `q-${index}`,
+            question: q,
+            answer: ''
+          }));
+          setQuestions(formattedQuestions);
+          setReceivedQuestions(true);
+          setShowQuestionsModal(true);
+          toast.success('Research query submitted successfully!');
+        } else {
+          toast.error('Received invalid response format from server');
+        }
+      } else {
+        toast.error('Failed to submit research request. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error in handleSubmitResearch:', error);
+      toast.error('An unexpected error occurred. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  // Handle question answers submission
+  const handleSubmitAnswers = async () => {
+    // Check if all questions have answers
+    const allAnswered = questions.every(q => q.answer.trim() !== '');
+    
+    if (!allAnswered) {
+      toast.error('Please answer all questions before submitting');
+      return;
+    }
+    
+    setIsLoading(true);
+    
+    try {
+      const userIdToUse = userId || await generateUserId();
+      
+      // Format answers for submission
+      const answersPayload = {
+        user_id: userIdToUse,
+        answers: questions.map(q => ({
+          question_id: q.id,
+          question: q.question,
+          answer: q.answer
+        }))
+      };
+      
+      console.log('Submitting answers:', answersPayload);
+      
+      // Send answers back to webhook
+      const response = await axios.post(`${WEBHOOK_URL}/answers`, answersPayload, {
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (response.status === 200) {
+        toast.success('Answers submitted successfully!');
+        setShowQuestionsModal(false);
+      } else {
+        toast.error('Failed to submit answers. Please try again.');
+      }
+    } catch (error) {
+      console.error('Error submitting answers:', error);
+      toast.error('An unexpected error occurred. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  // Update a specific question's answer
+  const updateQuestionAnswer = (id: string, answer: string) => {
+    setQuestions(questions.map(q => 
+      q.id === id ? { ...q, answer } : q
+    ));
+  };
 
   useEffect(() => {
     // Start auto-scroll for visual effect (matches the automatic motion in index.html)
@@ -747,13 +886,13 @@ export default function LandingScreen() {
       } catch (error) {
         console.error('Error creating neural network visualization:', error);
         setDebugMessage('Scene Error: ' + (error instanceof Error ? error.message : String(error)));
-        setIs3DWorking(false);
+        setIs3DEnabled(false);
         setIsLoading(false);
       }
     } catch (error) {
       console.error('Error in onContextCreate:', error);
       setDebugMessage('3D Error: ' + (error instanceof Error ? error.message : String(error)));
-      setIs3DWorking(false);
+      setIs3DEnabled(false);
       setIsLoading(false);
     }
   };
@@ -1019,11 +1158,6 @@ export default function LandingScreen() {
     navigation.navigate('Signup');
   };
 
-  // Add new function to navigate to LandingScreen_1
-  const navigateToAlternateLanding = () => {
-    navigation.navigate('LandingScreen_1');
-  };
-
   // Helper for card sections
   const CardSection = ({ children, style }: { children: React.ReactNode, style?: any }) => (
     <View style={[styles.cardSection, style]}>
@@ -1036,73 +1170,6 @@ export default function LandingScreen() {
     <Text style={styles.sectionTitle}>{children}</Text>
   );
 
-  // Handle research submission
-  const handleResearchSubmit = async () => {
-    if (!researchQuery.trim()) {
-      // Don't submit if query is empty
-      return;
-    }
-
-    setIsSubmitting(true);
-    setShowQuestions(false);
-    setQuestions([]);
-    setAnswers({});
-
-    try {
-      // Use the environment variable for the webhook URL
-      const response = await axios.post(
-        LANDING_PAGE_WEBHOOK_URL,
-        {
-          query: researchQuery,
-          breadth: researchBreadth,
-          depth: researchDepth,
-          includeTechnicalTerms,
-          outputFormat
-        }
-      );
-
-      // Access the questions directly as per the specified format
-      if (response.data && Array.isArray(response.data)) {
-        // Get questions - assuming response.data contains the array of questions directly
-        const receivedQuestions = response.data;
-        
-        if (receivedQuestions.length > 0) {
-          console.log('Received questions:', receivedQuestions);
-          setQuestions(receivedQuestions);
-          
-          // Initialize answers object
-          const initialAnswers: Record<string, string> = {};
-          receivedQuestions.forEach((q: ResearchQuestion) => {
-            initialAnswers[q.id] = '';
-          });
-          setAnswers(initialAnswers);
-          
-          setShowQuestions(true);
-        }
-      }
-    } catch (error) {
-      console.error('Error submitting research:', error);
-      setIsSubmitting(false);
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  // Update answer for a specific question
-  const updateAnswer = (questionId: string, answer: string) => {
-    setAnswers(prev => ({
-      ...prev,
-      [questionId]: answer
-    }));
-  };
-
-  // Handle submitting answers and proceeding to login
-  const handleSubmitAnswers = () => {
-    // This would normally send the answers back to the server
-    // For now, just navigate to alternative landing screen
-    navigateToAlternateLanding();
-  };
-
   // Content for the scrollable sections
   const renderContent = () => {
     // Create smooth animation paths that follow the nodes
@@ -1114,145 +1181,23 @@ export default function LandingScreen() {
           <Text style={styles.tagline}>AI-Driven Research Platform</Text>
         </View>
 
-        {/* Research Parameters Section */}
-        <View style={styles.parametersContainer}>
-          <Text style={styles.parametersTitle}>Research Parameters</Text>
-          
-          {/* Research Breadth */}
-          <View style={styles.parameterRow}>
-            <Text style={styles.parameterLabel}>Research Breadth</Text>
-            <Text style={styles.parameterValue}>{researchBreadth}</Text>
-          </View>
-          <View style={styles.sliderContainer}>
-            <Slider
-              style={styles.slider}
-              minimumValue={1}
-              maximumValue={5}
-              step={1}
-              value={researchBreadth}
-              onValueChange={setResearchBreadth}
-              minimumTrackTintColor="#64FFDA"
-              maximumTrackTintColor="#4DB6AC"
-              thumbTintColor="#64FFDA"
-            />
-            <View style={styles.sliderLabels}>
-              <Text style={styles.sliderLabel}>1</Text>
-              <Text style={styles.sliderLabel}>2</Text>
-              <Text style={styles.sliderLabel}>3</Text>
-              <Text style={styles.sliderLabel}>4</Text>
-              <Text style={styles.sliderLabel}>5</Text>
-            </View>
-          </View>
-          
-          {/* Research Depth */}
-          <View style={styles.parameterRow}>
-            <Text style={styles.parameterLabel}>Research Depth</Text>
-            <Text style={styles.parameterValue}>{researchDepth}</Text>
-          </View>
-          <View style={styles.sliderContainer}>
-            <Slider
-              style={styles.slider}
-              minimumValue={1}
-              maximumValue={5}
-              step={1}
-              value={researchDepth}
-              onValueChange={setResearchDepth}
-              minimumTrackTintColor="#64FFDA"
-              maximumTrackTintColor="#4DB6AC"
-              thumbTintColor="#64FFDA"
-            />
-            <View style={styles.sliderLabels}>
-              <Text style={styles.sliderLabel}>1</Text>
-              <Text style={styles.sliderLabel}>2</Text>
-              <Text style={styles.sliderLabel}>3</Text>
-              <Text style={styles.sliderLabel}>4</Text>
-              <Text style={styles.sliderLabel}>5</Text>
-            </View>
-          </View>
-          
-          {/* Include Technical Terms */}
-          <View style={styles.parameterSwitchRow}>
-            <Text style={styles.parameterLabel}>Include Technical Terms</Text>
-            <Switch
-              trackColor={{ false: '#4c5561', true: '#4DB6AC' }}
-              thumbColor={includeTechnicalTerms ? '#64FFDA' : '#f4f3f4'}
-              ios_backgroundColor="#3e3e3e"
-              onValueChange={setIncludeTechnicalTerms}
-              value={includeTechnicalTerms}
-            />
-            <Text style={styles.switchValue}>{includeTechnicalTerms ? 'Yes' : 'No'}</Text>
-          </View>
-          
-          {/* Research Query */}
-          <TextInput
-            style={styles.queryInput}
-            placeholder="Type your query..."
-            placeholderTextColor="#A0B1C8"
-            value={researchQuery}
-            onChangeText={setResearchQuery}
-            multiline
-            editable={!isSubmitting && !showQuestions}
-          />
-          
-          {/* Submit Button - Show only when questions aren't displayed */}
-          {!showQuestions && (
-            <TouchableOpacity 
-              style={[
-                styles.submitButton,
-                isSubmitting || !researchQuery.trim() ? styles.submitButtonDisabled : null
-              ]}
-              onPress={handleResearchSubmit}
-              disabled={isSubmitting || !researchQuery.trim()}
-            >
-              {isSubmitting ? (
-                <ActivityIndicator color="#0A192F" size="small" />
-              ) : (
-                <Text style={styles.submitButtonText}>Submit Research</Text>
-              )}
-            </TouchableOpacity>
-          )}
-
-          {/* Loading Animation */}
-          {isSubmitting && (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color={THEME_COLORS.accentPrimary} />
-              <Text style={styles.loadingText}>Loading your personalized questions...</Text>
-            </View>
-          )}
-
-          {/* Questions Section */}
-          {showQuestions && questions.length > 0 && (
-            <View style={styles.questionsContainer}>
-              <Text style={styles.questionsSectionTitle}>Please Answer These Questions</Text>
-              
-              {(questions as ResearchQuestion[]).map((question, index) => (
-                <View key={question.id} style={styles.questionItem}>
-                  <Text style={styles.questionNumber}>Question {index + 1}</Text>
-                  <Text style={styles.questionText}>{question.text}</Text>
-                  <TextInput
-                    style={styles.answerInput}
-                    placeholder="Enter your answer here..."
-                    placeholderTextColor="#A0B1C8"
-                    value={answers[question.id]}
-                    onChangeText={(text) => updateAnswer(question.id, text)}
-                    multiline
-                  />
-                </View>
-              ))}
-              
-              <TouchableOpacity 
-                style={styles.submitButton}
-                onPress={handleSubmitAnswers}
-              >
-                <Text style={styles.submitButtonText}>Submit Answers</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </View>
-
         {/* Features Overview - Linked Node Design */}
         <View style={styles.featuresSection}>
-          <SectionTitle>KEY FEATURES</SectionTitle>
+          <View style={styles.featuresHeader}>
+            <TouchableOpacity 
+              style={styles.getStartedButton} 
+              onPress={navigateToLogin}
+            >
+              <LinearGradient
+                colors={['#3498db', '#6c63ff']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.buttonGradient}
+              >
+                <Text style={styles.buttonText}>GET STARTED</Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
           <View style={styles.featuresFlowContainer}>
             {/* Feature 1 */}
             <View style={styles.featureNodeContainer}>
@@ -1481,49 +1426,420 @@ export default function LandingScreen() {
         <CardSection style={styles.ctaSection}>
           <Text style={styles.ctaTitle}>Ready to Transform Your Research?</Text>
           <Text style={styles.ctaDescription}>
-            Join Limitless Research and discover the power of AI-driven insights
+            Join now and access powerful AI-driven research tools at your fingertips.
           </Text>
-          <TouchableOpacity
-            style={styles.ctaButton}
-            onPress={navigateToLogin}
-          >
-            <Text style={styles.ctaButtonText}>GET STARTED</Text>
-          </TouchableOpacity>
-        </CardSection>
-
-        {/* Footer */}
-        <View style={styles.footer}>
-          <View style={styles.footerRow}>
-            <TouchableOpacity onPress={() => navigation.navigate('LegalInfoScreen', { section: 'privacy' })}>
-              <Text style={styles.footerLink}>Privacy Policy</Text>
+          <View style={styles.buttonGroup}>
+            <TouchableOpacity 
+              style={[styles.ctaButton, styles.loginButton]} 
+              onPress={navigateToLogin}
+            >
+              <LinearGradient
+                colors={['#3498db', '#6c63ff']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.buttonGradient}
+              >
+                <Text style={styles.buttonText}>Log In</Text>
+              </LinearGradient>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => navigation.navigate('LegalInfoScreen', { section: 'terms' })}>
-              <Text style={styles.footerLink}>Terms of Service</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => navigation.navigate('LegalInfoScreen', { section: 'contact' })}>
-              <Text style={styles.footerLink}>Contact Us</Text>
+            <TouchableOpacity 
+              style={[styles.ctaButton, styles.signupButton]} 
+              onPress={navigateToSignup}
+            >
+              <LinearGradient
+                colors={['#6c63ff', '#3498db']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.buttonGradient}
+              >
+                <Text style={styles.buttonText}>Sign Up</Text>
+              </LinearGradient>
             </TouchableOpacity>
           </View>
-        </View>
+        </CardSection>
+        
+        {/* Research Parameters Modal */}
+        <Modal
+          visible={showResearchModal}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setShowResearchModal(false)}
+        >
+          <View style={styles.modalContainer}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Research Parameters</Text>
+                <TouchableOpacity 
+                  style={styles.closeButton}
+                  onPress={() => setShowResearchModal(false)}
+                >
+                  <Ionicons name="close" size={24} color="white" />
+                </TouchableOpacity>
+              </View>
+              
+              <ScrollView style={styles.modalScrollContent}>
+                {/* Research Breadth Slider */}
+                <MotiView
+                  from={{ opacity: 0, translateY: 10 }}
+                  animate={{ opacity: 1, translateY: 0 }}
+                  transition={{ 
+                    type: 'timing',
+                    duration: 300
+                  } as any}
+                  style={styles.parameterSection}
+                >
+                  <View style={styles.parameterHeader}>
+                    <Text style={styles.parameterLabel}>Research Breadth</Text>
+                    <View style={styles.valueBadge}>
+                      <Text style={styles.valueText}>{breadth}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.sliderContainer}>
+                    <View style={styles.sliderTrack}>
+                      <Animated.View 
+                        style={[
+                          styles.sliderFill, 
+                          { 
+                            width: breadthAnimValue.interpolate({
+                              inputRange: [1, 5],
+                              outputRange: ['20%', '100%']
+                            }) 
+                          }
+                        ]} 
+                      >
+                        <LinearGradient
+                          colors={['#6c63ff', '#3B82F6']}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 0 }}
+                          style={{ flex: 1, borderRadius: 2 }}
+                        />
+                      </Animated.View>
+                    </View>
+                    <View style={styles.sliderValues}>
+                      {[1, 2, 3, 4, 5].map(value => (
+                        <TouchableOpacity 
+                          key={value} 
+                          onPress={() => setBreadth(value)}
+                          style={[
+                            styles.sliderValue,
+                            breadth >= value && styles.filledSliderValue,
+                            breadth === value && styles.activeSliderValue
+                          ]}
+                        >
+                          <MotiView
+                            animate={{
+                              scale: breadth === value ? 1.2 : 1
+                            }}
+                            transition={{
+                              type: 'spring',
+                              damping: 10,
+                              stiffness: 100
+                            } as any}
+                          >
+                            <Text style={[
+                              styles.sliderValueText,
+                              breadth >= value && styles.filledSliderValueText
+                            ]}>{value}</Text>
+                          </MotiView>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+                </MotiView>
+
+                {/* Research Depth Slider */}
+                <MotiView
+                  from={{ opacity: 0, translateY: 10 }}
+                  animate={{ opacity: 1, translateY: 0 }}
+                  transition={{ 
+                    type: 'timing',
+                    duration: 300,
+                    delay: 100
+                  } as any}
+                  style={styles.parameterSection}
+                >
+                  <View style={styles.parameterHeader}>
+                    <Text style={styles.parameterLabel}>Research Depth</Text>
+                    <View style={styles.valueBadge}>
+                      <Text style={styles.valueText}>{depth}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.sliderContainer}>
+                    <View style={styles.sliderTrack}>
+                      <Animated.View 
+                        style={[
+                          styles.sliderFill, 
+                          { 
+                            width: depthAnimValue.interpolate({
+                              inputRange: [1, 5],
+                              outputRange: ['20%', '100%']
+                            }) 
+                          }
+                        ]} 
+                      >
+                        <LinearGradient
+                          colors={['#6c63ff', '#3B82F6']}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 0 }}
+                          style={{ flex: 1, borderRadius: 2 }}
+                        />
+                      </Animated.View>
+                    </View>
+                    <View style={styles.sliderValues}>
+                      {[1, 2, 3, 4, 5].map(value => (
+                        <TouchableOpacity 
+                          key={value} 
+                          onPress={() => setDepth(value)}
+                          style={[
+                            styles.sliderValue,
+                            depth >= value && styles.filledSliderValue,
+                            depth === value && styles.activeSliderValue
+                          ]}
+                        >
+                          <MotiView
+                            animate={{
+                              scale: depth === value ? 1.2 : 1
+                            }}
+                            transition={{
+                              type: 'spring',
+                              damping: 10,
+                              stiffness: 100
+                            } as any}
+                          >
+                            <Text style={[
+                              styles.sliderValueText,
+                              depth >= value && styles.filledSliderValueText
+                            ]}>{value}</Text>
+                          </MotiView>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+                </MotiView>
+
+                {/* Include Technical Terms Toggle */}
+                <MotiView
+                  from={{ opacity: 0, translateY: 10 }}
+                  animate={{ opacity: 1, translateY: 0 }}
+                  transition={{ 
+                    type: 'timing',
+                    duration: 300,
+                    delay: 200
+                  } as any}
+                  style={styles.parameterSection}
+                >
+                  <View style={styles.parameterHeader}>
+                    <Text style={styles.parameterLabel}>Include Technical Terms</Text>
+                      <TouchableOpacity 
+                      style={styles.toggleContainer}
+                        onPress={() => setIncludeTechnicalTerms(!includeTechnicalTerms)}
+                      activeOpacity={0.7}
+                    >
+                      <MotiView
+                        animate={{
+                          backgroundColor: includeTechnicalTerms ? '#6c63ff' : 'rgba(108, 99, 255, 0.2)'
+                        }}
+                        transition={{
+                          type: 'timing',
+                          duration: 200
+                        } as any}
+                        style={styles.toggleTrack}
+                      >
+                        <MotiView
+                          animate={{
+                            translateX: includeTechnicalTerms ? 24 : 0
+                          }}
+                          transition={{
+                            type: 'spring',
+                            damping: 15,
+                            stiffness: 120
+                          } as any}
+                          style={styles.toggleThumb}
+                        >
+                          {includeTechnicalTerms && (
+                            <MotiView
+                              from={{ opacity: 0, scale: 0.5 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              transition={{ 
+                                type: 'timing',
+                                duration: 200
+                              } as any}
+                            >
+                              <Text style={styles.toggleText}>Y</Text>
+                            </MotiView>
+                          )}
+                        </MotiView>
+                      </MotiView>
+                      <Text style={styles.toggleLabel}>
+                        {includeTechnicalTerms ? "Yes" : "No"}
+                      </Text>
+                      </TouchableOpacity>
+                  </View>
+                </MotiView>
+
+                {/* Output Format Dropdown */}
+                <MotiView
+                  from={{ opacity: 0, translateY: 10 }}
+                  animate={{ opacity: 1, translateY: 0 }}
+                  transition={{ 
+                    type: 'timing',
+                    duration: 300,
+                    delay: 300
+                  } as any}
+                  style={styles.parameterSection}
+                >
+                  <Text style={styles.parameterLabel}>Output Format</Text>
+                  <TouchableOpacity 
+                    style={styles.dropdownButton}
+                    onPress={() => setShowDropdown(!showDropdown)}
+                  >
+                    <Text style={styles.dropdownButtonText}>{outputType}</Text>
+                    <Ionicons name="chevron-down" size={20} color="white" />
+                  </TouchableOpacity>
+                  
+                  {showDropdown && (
+                    <View style={styles.dropdownMenu}>
+                      {outputOptions.map((option) => (
+                        <TouchableOpacity 
+                          key={option}
+                          style={[styles.dropdownItem, option === outputType && styles.dropdownItemActive]}
+                          onPress={() => {
+                            setOutputType(option);
+                            setShowDropdown(false);
+                          }}
+                        >
+                          <Text style={[
+                            styles.dropdownItemText,
+                            option === outputType && styles.dropdownItemTextActive
+                          ]}>{option}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                </MotiView>
+
+                {/* Query Input */}
+                <MotiView
+                  from={{ opacity: 0, translateY: 10 }}
+                  animate={{ opacity: 1, translateY: 0 }}
+                  transition={{ 
+                    type: 'timing',
+                    duration: 300,
+                    delay: 400
+                  } as any}
+                  style={styles.queryInputContainer}
+                >
+                  <TextInput
+                    style={styles.queryInput}
+                    placeholder="Type your query..."
+                    placeholderTextColor="rgba(255, 255, 255, 0.5)"
+                    value={query}
+                    onChangeText={setQuery}
+                    multiline
+                  />
+                </MotiView>
+                
+                {/* Submit Button */}
+                <TouchableOpacity 
+                  style={[styles.submitButton, isLoading && { opacity: 0.7 }, {marginTop: 20}]}
+                  onPress={handleSubmitResearch}
+                  disabled={isLoading}
+                  activeOpacity={0.7}
+                >
+                  {isLoading ? (
+                    <ActivityIndicator size="small" color="white" />
+                  ) : (
+                    <Text style={styles.submitButtonText}>Submit Research</Text>
+                  )}
+                </TouchableOpacity>
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+        
+        {/* Questions Modal */}
+        <Modal
+          visible={showQuestionsModal}
+          animationType="slide"
+          transparent={true}
+          onRequestClose={() => setShowQuestionsModal(false)}
+        >
+          <View style={styles.modalContainer}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Answer Questions</Text>
+                <TouchableOpacity 
+                  style={styles.closeButton}
+                  onPress={() => setShowQuestionsModal(false)}
+                >
+                  <Ionicons name="close" size={24} color="white" />
+                </TouchableOpacity>
+              </View>
+              
+              <ScrollView style={styles.modalScrollContent}>
+                {receivedQuestions ? (
+                  <>
+                    <Text style={styles.questionsLabel}>
+                      Please answer the following questions to help refine your research results:
+                    </Text>
+                    
+                    {questions.map((question, index) => (
+                      <View key={question.id} style={styles.questionContainer}>
+                        <Text style={styles.questionText}>{index + 1}. {question.question}</Text>
+                        <TextInput
+                          style={styles.answerInput}
+                          placeholder="Type your answer..."
+                          placeholderTextColor="rgba(255, 255, 255, 0.5)"
+                          value={question.answer}
+                          onChangeText={(text) => updateQuestionAnswer(question.id, text)}
+                          multiline
+                        />
+                      </View>
+                    ))}
+                    
+                    <TouchableOpacity 
+                      style={[styles.submitButton, isLoading && { opacity: 0.7 }, {marginTop: 20}]}
+                      onPress={handleSubmitAnswers}
+                      disabled={isLoading}
+                      activeOpacity={0.7}
+                    >
+                      {isLoading ? (
+                        <ActivityIndicator size="small" color="white" />
+                      ) : (
+                        <Text style={styles.submitButtonText}>Submit Answers</Text>
+                      )}
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <View style={styles.loadingContainer}>
+                    <ActivityIndicator size="large" color="#6c63ff" />
+                    <Text style={styles.loadingText}>Loading questions...</Text>
+                  </View>
+                )}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
       </>
     );
   };
 
   // Effects to handle fade-in of content
   useEffect(() => {
-    if (layoutCalculated) {
-      // Animate opacity after layout is calculated
-      const timer = setTimeout(() => {
-        setContentOpacity(1);
-      }, 300);
-      
-      return () => clearTimeout(timer);
+    if (layoutCalculated && is3DInitialized) {
+      console.log('Starting content fade in animation');
+      // Use Animated.timing instead of setState
+      Animated.timing(contentOpacity, {
+        toValue: 1,
+        duration: 800,
+        useNativeDriver: true
+      }).start();
     }
-  }, [layoutCalculated]);
+  }, [layoutCalculated, is3DInitialized]);
 
   // Handle 3D context initialization
   useEffect(() => {
-    setIs3DWorking(is3DAvailable);
+    setIs3DEnabled(is3DAvailable);
   }, []);
 
   // Replace the DOM-specific animation with React Native Animated API
@@ -1551,12 +1867,6 @@ export default function LandingScreen() {
       {/* Top Right Buttons */}
       <View style={styles.topRightButtons}>
         <TouchableOpacity
-          style={[styles.topButton, styles.alternateButton]}
-          onPress={navigateToAlternateLanding}
-        >
-          <Text style={styles.topButtonText}>ALT</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
           style={[styles.topButton, styles.loginButton]}
           onPress={navigateToLogin}
         >
@@ -1572,7 +1882,7 @@ export default function LandingScreen() {
       
       {/* 3D Visualization Background */}
       <View style={styles.container}>
-        {is3DWorking && GLView ? (
+        {is3DEnabled && GLView ? (
           <GLView
             style={styles.three}
             onContextCreate={onContextCreate}
@@ -1631,18 +1941,15 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 2,
   },
-  alternateButton: {
-    backgroundColor: 'rgba(100, 255, 218, 0.3)',
-    borderWidth: 1,
-    borderColor: THEME_COLORS.accentPrimary,
-  },
   loginButton: {
     backgroundColor: 'transparent',
     borderWidth: 1,
     borderColor: THEME_COLORS.accentPrimary,
   },
   signupButton: {
-    backgroundColor: THEME_COLORS.accentPrimary,
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: THEME_COLORS.accentPrimary,
   },
   topButtonText: {
     color: THEME_COLORS.buttonText,
@@ -2159,193 +2466,278 @@ const styles = StyleSheet.create({
     color: THEME_COLORS.textSecondary,
     lineHeight: width < 350 ? 14 : 16, // Reduced line height
   },
-  parametersContainer: {
-    backgroundColor: 'rgba(25, 45, 65, 0.85)', // Match card background
-    borderRadius: 15,
-    padding: 20,
+  buttonGroup: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     marginTop: 20,
-    marginBottom: 30,
-    marginHorizontal: 15, // Add horizontal margin on both sides
-    width: 'auto', // Allow container to respect margins
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    borderColor: 'rgba(100, 255, 218, 0.2)', // Match accent color with alpha
-    borderWidth: 1,
   },
-  parametersTitle: {
+  buttonGradient: {
+    flex: 1,
+    paddingVertical: 14,
+    paddingHorizontal: 40,
+    borderRadius: 30,
+    alignItems: 'center',
+    marginHorizontal: 5,
+  },
+  researchButton: {
+    backgroundColor: THEME_COLORS.accentSecondary,
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  modalContent: {
+    width: '80%',
+    backgroundColor: THEME_COLORS.cardBackground,
+    padding: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  modalHeader: {
+    width: '100%',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalTitle: {
     fontSize: 24,
     fontWeight: 'bold',
     color: THEME_COLORS.textPrimary,
-    marginBottom: 25,
-    textAlign: 'center',
-    textShadowColor: 'rgba(100, 255, 218, 0.4)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 5,
   },
-  parameterRow: {
+  closeButton: {
+    padding: 10,
+  },
+  modalScrollContent: {
+    width: '100%',
+  },
+  parameterSection: {
+    marginBottom: 30,
+  },
+  parameterHeader: {
+    width: '100%',
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 10,
   },
-  parameterSwitchRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginVertical: 15,
-  },
   parameterLabel: {
-    fontSize: 16,
-    color: THEME_COLORS.textPrimary,
-    fontWeight: '500',
-  },
-  parameterValue: {
-    fontSize: 16,
-    color: THEME_COLORS.accentPrimary,
-    fontWeight: 'bold',
-  },
-  switchValue: {
-    fontSize: 16,
-    color: THEME_COLORS.textPrimary,
-    marginLeft: -50, // Move text closer to switch
-  },
-  sliderContainer: {
-    marginBottom: 20,
-  },
-  slider: {
-    width: '100%',
-    height: 40,
-  },
-  sliderLabels: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 10,
-    marginTop: -10,
-  },
-  sliderLabel: {
-    color: THEME_COLORS.textSecondary,
-    fontSize: 14,
-  },
-  formatSelector: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: 'rgba(100, 255, 218, 0.15)',
-    borderRadius: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    marginBottom: 22,
-    borderWidth: 1,
-    borderColor: 'rgba(100, 255, 218, 0.3)',
-    elevation: 2,
-    shadowColor: 'rgba(0, 0, 0, 0.1)',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
-  },
-  formatText: {
-    color: THEME_COLORS.textPrimary,
-    fontSize: 16,
-  },
-  formatDropdownIcon: {
-    color: THEME_COLORS.accentPrimary,
-    fontSize: 14,
-  },
-  queryInput: {
-    backgroundColor: 'rgba(25, 45, 65, 0.5)',
-    borderRadius: 10,
-    padding: 16,
-    color: THEME_COLORS.textPrimary,
-    fontSize: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(100, 255, 218, 0.2)',
-    minHeight: 90,
-    textAlignVertical: 'top',
-    marginBottom: 22,
-    elevation: 2,
-    shadowColor: 'rgba(0, 0, 0, 0.1)',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
-  },
-  submitButton: {
-    backgroundColor: THEME_COLORS.accentPrimary,
-    borderRadius: 8,
-    paddingVertical: 15,
-    alignItems: 'center',
-    marginBottom: 5,
-  },
-  submitButtonDisabled: {
-    backgroundColor: 'rgba(100, 255, 218, 0.4)',
-  },
-  submitButtonText: {
-    color: 'rgba(10, 25, 47, 1)',
     fontSize: 18,
     fontWeight: 'bold',
+    color: THEME_COLORS.textPrimary,
   },
-  loadingContainer: {
+  valueBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    backgroundColor: THEME_COLORS.accentPrimary,
+    borderRadius: 5,
+  },
+  valueText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: THEME_COLORS.background,
+  },
+  sliderContainer: {
+    width: '100%',
+    marginBottom: 10,
+  },
+  sliderTrack: {
+    height: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 5,
+  },
+  sliderFill: {
+    height: '100%',
+    borderRadius: 5,
+  },
+  sliderValues: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 5,
+  },
+  sliderValue: {
+    width: '20%',
+    height: 20,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 20,
   },
-  loadingText: {
-    color: THEME_COLORS.textPrimary,
+  filledSliderValue: {
+    backgroundColor: THEME_COLORS.accentPrimary,
+  },
+  activeSliderValue: {
+    borderWidth: 2,
+    borderColor: THEME_COLORS.accentPrimary,
+  },
+  sliderValueText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: THEME_COLORS.background,
+  },
+  filledSliderValueText: {
+    color: THEME_COLORS.background,
+  },
+  toggleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  toggleTrack: {
+    width: 40,
+    height: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  toggleThumb: {
+    width: 20,
+    height: 20,
+    backgroundColor: 'white',
+    borderRadius: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  toggleText: {
     fontSize: 16,
-    marginTop: 10,
-    textAlign: 'center',
+    fontWeight: 'bold',
+    color: THEME_COLORS.background,
   },
-  questionsContainer: {
+  toggleLabel: {
+    fontSize: 14,
+    color: THEME_COLORS.textSecondary,
+  },
+  dropdownButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    backgroundColor: THEME_COLORS.accentPrimary,
+    borderRadius: 5,
+    marginBottom: 10,
+  },
+  dropdownButtonText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: THEME_COLORS.background,
+  },
+  dropdownMenu: {
+    width: '100%',
+    backgroundColor: THEME_COLORS.cardBackground,
+    borderRadius: 5,
+    padding: 10,
+    marginTop: 5,
+  },
+  dropdownItem: {
+    paddingVertical: 10,
+    paddingHorizontal: 15,
+    borderRadius: 5,
+    marginBottom: 5,
+  },
+  dropdownItemActive: {
+    backgroundColor: THEME_COLORS.accentSecondary,
+  },
+  dropdownItemText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: THEME_COLORS.textPrimary,
+  },
+  dropdownItemTextActive: {
+    color: THEME_COLORS.background,
+  },
+  queryInputContainer: {
+    width: '100%',
+    marginBottom: 20,
+  },
+  queryInput: {
+    width: '100%',
+    height: 100,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 5,
+    padding: 10,
+    color: THEME_COLORS.textPrimary,
+    marginBottom: 10,
+  },
+  submitButton: {
+    width: '100%',
+    paddingVertical: 14,
+    borderRadius: 30,
+    alignItems: 'center',
     marginTop: 20,
   },
-  questionsSectionTitle: {
-    fontSize: 20,
+  submitButtonText: {
+    fontSize: 16,
     fontWeight: 'bold',
-    color: THEME_COLORS.accentPrimary,
+    color: THEME_COLORS.background,
+  },
+  questionsLabel: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: THEME_COLORS.textPrimary,
+    marginBottom: 10,
+  },
+  questionContainer: {
     marginBottom: 15,
-    textAlign: 'center',
-  },
-  questionItem: {
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(100, 255, 218, 0.2)',
-    borderRadius: 12,
-    padding: 16,
-    backgroundColor: 'rgba(25, 45, 65, 0.3)',
-    shadowColor: 'rgba(0, 0, 0, 0.2)',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
-    elevation: 3,
-  },
-  questionNumber: {
-    fontSize: 14,
-    color: THEME_COLORS.accentPrimary,
-    fontWeight: 'bold',
-    marginBottom: 5,
   },
   questionText: {
     fontSize: 16,
-    color: THEME_COLORS.textPrimary,
-    marginBottom: 12,
-    lineHeight: 22,
+    color: THEME_COLORS.textSecondary,
+    marginBottom: 5,
   },
   answerInput: {
-    backgroundColor: 'rgba(25, 45, 65, 0.5)',
-    borderRadius: 10,
-    padding: 16,
+    width: '100%',
+    height: 100,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 5,
+    padding: 10,
     color: THEME_COLORS.textPrimary,
-    fontSize: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(100, 255, 218, 0.2)',
-    minHeight: 70,
-    textAlignVertical: 'top',
-    elevation: 1,
-    shadowColor: 'rgba(0, 0, 0, 0.1)',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.2,
-    shadowRadius: 2,
+  },
+  // Add these styles for the flowNode variants
+  flowNode1: {
+    borderColor: 'rgba(100, 255, 218, 0.4)',
+  },
+  
+  flowNode2: {
+    borderColor: 'rgba(100, 255, 218, 0.4)',
+  },
+  
+  flowNode3: {
+    borderColor: 'rgba(100, 255, 218, 0.4)',
+  },
+  
+  flowNode4: {
+    borderColor: 'rgba(100, 255, 218, 0.4)',
+  },
+  
+  flowNode5: {
+    borderColor: 'rgba(100, 255, 218, 0.4)',
+  },
+  
+  flowNode6: {
+    borderColor: 'rgba(100, 255, 218, 0.4)',
+  },
+  featuresHeader: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  getStartedButton: {
+    width: '70%',
+    paddingVertical: 14,
+    borderRadius: 30,
+    alignItems: 'center',
+    marginVertical: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
+    elevation: 8,
   },
 }); 
